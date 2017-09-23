@@ -130,7 +130,7 @@ extern long double strtold (const char *__nptr, char **__endptr);
 /* default target is I386 */
 #if !defined(TCC_TARGET_I386) && !defined(TCC_TARGET_ARM) && \
     !defined(TCC_TARGET_ARM64) && !defined(TCC_TARGET_C67) && \
-    !defined(TCC_TARGET_X86_64)
+    !defined(TCC_TARGET_X86_64) && !defined(TCC_TARGET_XTENSA)
 # if defined __x86_64__ || defined _AMD64_
 #  define TCC_TARGET_X86_64
 # elif defined __arm__
@@ -338,6 +338,10 @@ extern long double strtold (const char *__nptr, char **__endptr);
 # include "coff.h"
 # include "c67-gen.c"
 # include "c67-link.c"
+#endif
+#ifdef TCC_TARGET_XTENSA
+#include "xtensa-gen.c"
+#include "xtensa-link.c"
 #endif
 #undef TARGET_DEFS_ONLY
 
