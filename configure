@@ -198,6 +198,10 @@ case "$cpu" in
   s390)
     cpu="s390"
   ;;
+  xtensa)
+    cpu="xtensa"
+    targetos="esp82xx"
+  ;;
   *)
     echo "Unsupported CPU"
     exit 1
