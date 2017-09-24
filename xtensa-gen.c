@@ -24,38 +24,47 @@
 
 #define RC_INT     0x0001 /* generic integer register */
 #define RC_FLOAT   0x0002 /* generic float register [NOT IMPLEMENTED] */
-#define RC_A0      0x0004
-#define RC_A1      0x0008 /* Stack pointer */
-#define RC_A2      0x0010 /* Return register */
-#define RC_A3      0x0020
-#define RC_A4      0x0040
-#define RC_A5      0x0080
-#define RC_A6      0x0100
-#define RC_A7      0x0200
-#define RC_A8      0x0400
-#define RC_A9      0x0800
+#define RC_A0      0x0010
+#define RC_A1      0x0020 /* Stack pointer */
+#define RC_A2      0x0040 /* Function call registers */
+#define RC_A3      0x0080 
+#define RC_A4      0x0100
+#define RC_A5      0x0200
+#define RC_A6      0x0400
+#define RC_A7      0x0800 
+#define RC_A8      0x1000 /* Work registers */
+#define RC_A9      0x2000
+#define RC_A10     0x4000
+#define RC_A15     0x8000
 
-#define NB_REGS         10
+#define NB_REGS         12
 
 #include "tcc.h"
+
+#define REGSIZE 4 		//Size of register (in bytes)
+#define NR_CALLREGS  6		//You have A2 to A7 to pass variables into functions.
+
 
 #define LDOUBLE_ALIGN 4
 #define LDOUBLE_SIZE 8   //XXX Is this correct? What does this do?
 #define PTR_SIZE 4
 #define MAX_ALIGN     8
 
+#define dbginfo(x...) printf(x)
 
 enum {
-    TREG_A0 = 0,
-    TREG_A1,
-    TREG_A2,
-    TREG_A3,
-    TREG_A4,
-    TREG_A5,
-    TREG_A6,
-    TREG_A7,
-    TREG_A8,
-    TREG_A9,
+	TREG_A0 = 0,
+	TREG_A1,
+	TREG_A2,
+	TREG_A3,
+	TREG_A4,
+	TREG_A5,
+	TREG_A6,
+	TREG_A7,
+	TREG_A8,
+	TREG_A9,
+	TREG_A10,
+	TREG_A15,
 };
 
 #define REG_IRET   TREG_A2
@@ -88,12 +97,12 @@ ST_DATA const int reg_classes[NB_REGS] = {
 /* output a symbol and patch all calls to it */
 ST_FUNC void gsym_addr(int t, int a)
 {
-	printf( "gsym_addr( %d, %d );\n", t, a );
+	dbginfo( "gsym_addr( %d, %d );\n", t, a );
 }
 
 ST_FUNC void gsym(int t)
 {
-	printf( "TODO gsym(%d)\n", t );
+	dbginfo( "TODO gsym(%d)\n", t );
 }
 
 ST_FUNC void g(int c)
@@ -104,7 +113,7 @@ ST_FUNC void g(int c)
 	ind1 = ind + 1;
 	if (ind1 > cur_text_section->data_allocated)
 		section_realloc(cur_text_section, ind1);
-	printf( "g(%x)\n", c );
+	dbginfo( "g(%x)\n", c );
 	cur_text_section->data[ind] = c;
 	ind = ind1;
 }
@@ -120,17 +129,17 @@ ST_FUNC void o(unsigned int c)
 /* store register 'r' in lvalue 'v' */
 ST_FUNC void store(int r, SValue *v)
 {
-	printf( "store( %d -> %d %lu %d TYPE %d)\n", r, v->type.t, v->c.i, v->r, v->type.t & VT_BTYPE );
+	dbginfo( "store( %d -> %d %lu %d TYPE %d)\n", r, v->type.t, v->c.i, v->r, v->type.t & VT_BTYPE );
 }
 
 ST_FUNC void load(int r, SValue *sv)
 {
-	printf( "load( %d -> %d %lu %d TYPE %d)\n", r, sv->type.t, sv->c.i, sv->r, sv->type.t & VT_BTYPE );
+	dbginfo( "load( %d -> %d %lu %d TYPE %d)\n", r, sv->type.t, sv->c.i, sv->r, sv->type.t & VT_BTYPE );
 }
 
 ST_FUNC int gjmp(int t)
 {
-	printf( "gjmp( %d )\n", t );
+	dbginfo( "gjmp( %d )\n", t );
 //    return gjmp2(0xe9, t);
 	return 0;
 }
@@ -138,7 +147,7 @@ ST_FUNC int gjmp(int t)
 /* generate a jump to a fixed address */
 ST_FUNC void gjmp_addr(int a)
 {
-	printf( "gjmp_addr( %d )\n", a );
+	dbginfo( "gjmp_addr( %d )\n", a );
 /*
     int r;
     r = a - ind - 2;
@@ -154,118 +163,87 @@ ST_FUNC void gjmp_addr(int a)
 
 ST_FUNC void gfunc_call(int nb_args)
 {
-	printf( "gfunc_call( nb_args = %d )\n", nb_args );
+	dbginfo( "gfunc_call( nb_args = %d )\n", nb_args );
 }
 
 
 /* generate function prolog of type 't' */
 ST_FUNC void gfunc_prolog(CType *func_type)
 {
-  Sym *sym,*sym2;
-  int n, nf, size, align, rs, struct_ret = 0;
-  int addr, pn, sn; /* pn=core, sn=stack */
-  CType ret_type;
-  printf( "gfunc_prolog(%d %p)\n", func_type->t, func_type->ref );
+	Sym *sym,*sym2;
+//	int n, nf, size, align, rs, struct_ret = 0;
+	int align;
+	int rs;
 
-#ifdef TCC_ARM_EABI
-  struct avail_regs avregs = AVAIL_REGS_INITIALIZER;
-#endif
+#define  4 		//Size of register (in bytes)
+#define NR_CALLREGS  6		//You have A2 to A7 to pass variables into functions.
 
-  sym = func_type->ref;
-  func_vt = sym->type;
-  func_var = (func_type->ref->f.func_type == FUNC_ELLIPSIS);
+	int n = 0;
 
-  n = nf = 0;
-  if ((func_vt.t & VT_BTYPE) == VT_STRUCT &&
-      !gfunc_sret(&func_vt, func_var, &ret_type, &align, &rs))
-  {
-    n++;
-    struct_ret = 1;
-    func_vc = 12; /* Offset from fp of the place to store the result */
-  }
-  for(sym2 = sym->next; sym2 && (n < 4 || nf < 16); sym2 = sym2->next) {
-    size = type_size(&sym2->type, &align);
-#ifdef TCC_ARM_EABI
-    if (float_abi == ARM_HARD_FLOAT && !func_var &&
-        (is_float(sym2->type.t) || is_hgen_float_aggr(&sym2->type))) {
-      int tmpnf = assign_vfpreg(&avregs, align, size);
-      tmpnf += (size + 3) / 4;
-      nf = (tmpnf > nf) ? tmpnf : nf;
-    } else
-#endif
-    if (n < 4)
-      n += (size + 3) / 4;
-  }
-  o( 0xabcdabcd );
-//  o(0xE1A0C00D); /* mov ip,sp */
-  if (func_var)
-    n=4;
-  if (n) {
-    if(n>4)
-      n=4;
-#ifdef TCC_ARM_EABI
-    n=(n+1)&-2;
-#endif
-    //o(0xE92D0000|((1<<n)-1)); /* save r0-r4 on stack if needed */
-	o(0xdeadbeef );
-  }
-#if 0
-  if (nf) {
-    if (nf>16)
-      nf=16;
-    nf=(nf+1)&-2; /* nf => HARDFLOAT => EABI */
-    o(0xED2D0A00|nf); /* save s0-s15 on stack if needed */
-  }
-  //o(0xE92D5800); /* save fp, ip, lr */
-  //o(0xE1A0B00D); /* mov fp, sp */
-  //func_sub_sp_offset = ind;
-  //o(0xE1A00000); /* nop, leave space for stack adjustment in epilog */
-#endif
-#ifdef TCC_ARM_EABI
-  if (float_abi == ARM_HARD_FLOAT) {
-    func_vc += nf * 4;
-    avregs = AVAIL_REGS_INITIALIZER;
-  }
-#endif
+	int addr, pn, sn; /* pn=core, sn=stack */
+	CType ret_type;
 
+	sym = func_type->ref;
+	func_vt = sym->type;
+	func_var = (func_type->ref->f.func_type == FUNC_ELLIPSIS);
 
-  pn = struct_ret, sn = 0;
-  while ((sym = sym->next)) {
-    CType *type;
-    type = &sym->type;
-    size = type_size(type, &align);
-    size = (size + 3) >> 2;
-    align = (align + 3) & ~3;
-    printf( " Param: %d %d %d\n", type, size, align );
-#ifdef TCC_ARM_EABI
-    if (float_abi == ARM_HARD_FLOAT && !func_var && (is_float(sym->type.t)
-        || is_hgen_float_aggr(&sym->type))) {
-      int fpn = assign_vfpreg(&avregs, align, size << 2);
-      if (fpn >= 0)
-        addr = fpn * 4;
-      else
-        goto from_stack;
-    } else
-#endif
-    if (pn < 4) {
-#ifdef TCC_ARM_EABI
-        pn = (pn + (align-1)/4) & -(align/4);
-#endif
-      addr = (nf + pn) * 4;
-      pn += size;
-      if (!sn && pn > 4)
-        sn = (pn - 4);
-    } else {
-#ifdef TCC_ARM_EABI
-from_stack:
-        sn = (sn + (align-1)/4) & -(align/4);
-#endif
-      addr = (n + nf + sn) * 4;
-      sn += size;
-    }
-    sym_push(sym->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t),
-             addr + 12);
-  }
+	if( func_var )
+	{
+		tcc_error( "error: xtensa port does not support ellipsis yet.\n" );
+		return;
+	}
+
+	dbginfo( "gfunc_prolog(%d %p  %p %d %d)\n", func_type->t, func_type->ref, sym, func_vt.t, func_var );
+
+	n = 0;
+
+	if ((func_vt.t & VT_BTYPE) == VT_STRUCT)
+	{
+		if( gfunc_sret(&func_vt, func_var, &ret_type, &align, &rs) )
+		{
+			dbginfo( "Returning a struct... or is it an ellipisis Gonna need to figure this stuff out.  Wait.  how big is it??\n" );
+			n++;
+			struct_ret = 1;
+			func_vc = 12; /* Offset from fp of the place to store the result */
+		}
+	}
+
+	for(sym2 = sym->next; sym2; sym2 = sym2->next) {
+		size = type_size(&sym2->type, &align);
+		dbginfo( "symming: %p -> %d %d\n", sym2, size, n );
+		if (n < 4)
+			n += (size + 3) / REGSIZE;
+	}
+
+	//TODO:
+	// How do we set func_vc correctly?
+ 	func_vc = 0;
+	o( 0xabcdabcd );
+
+	dbginfo( "Need %d words for parameter passing.\n", n );
+
+	o( 0xbeefbeef );
+
+	pn = struct_ret, sn = 0;
+	while ((sym = sym->next)) {
+		CType *type;
+		type = &sym->type;
+		size = type_size(type, &align);
+		align = (align + 3) & ~3;
+		printf( " Param: %d %d %d\n", type, size, align );
+		size = (size + 3) >> 2;
+		if (pn < 4) {
+			addr = (nf + pn) * 4;
+			pn += size;
+			if (!sn && pn > 4)
+				sn = (pn - 4);
+		} else {
+		addr = (n + nf + sn) * 4;
+		sn += size;
+		}
+		sym_push(sym->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t),
+		     addr + 12);
+	}
   //last_itod_magic=0;
   //leaffunc = 1;
   loc = 0;
