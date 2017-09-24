@@ -27,6 +27,8 @@
 int code_reloc (int reloc_type)
 {
 	printf( "CODE RELOC: %d\n", reloc_type );
+	return 0;
+
 /*
     switch (reloc_type) {
         case R_C60_32:
@@ -52,6 +54,7 @@ int code_reloc (int reloc_type)
 int gotplt_entry_type (int reloc_type)
 {
 	printf( "gotplt_entry_type: %d\n", reloc_type );
+	return 0;
 /*
     switch (reloc_type) {
         case R_C60_32:
