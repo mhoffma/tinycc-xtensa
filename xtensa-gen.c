@@ -71,9 +71,14 @@ enum {
 #define REG_LRET   TREG_A3
 #define REG_FRET   0x8000
 
+#define REG_WORK1 TREG_A8
+
+
 #define RC_IRET    RC_A2	/* function return: integer register */
 #define RC_LRET    RC_A3	/* function return: second integer register */
 #define RC_FRET    0x8000	/* function return: float register (not currently in use) */
+
+//static uint8_t fastcall_regs[NR_CALLREGS] = { TREG_A2, TREG_A3, TREG_A4, TREG_A5, TREG_A6, TREG_A7 };
 
 
 #else
@@ -92,6 +97,8 @@ ST_DATA const int reg_classes[NB_REGS] = {
 	RC_INT | RC_A8,
 	RC_INT | RC_A9,
 };
+
+ST_DATA unsigned long func_sub_sp_offset;
 
 
 /* output a symbol and patch all calls to it */
@@ -126,15 +133,56 @@ ST_FUNC void o(unsigned int c)
     }
 }
 
-/* store register 'r' in lvalue 'v' */
+#if 0
+
+/* type definition */
+typedef struct CType {
+    int t;
+    struct Sym *ref;
+} CType;
+
+
+/* constant value */
+typedef union CValue {
+    long double ld;
+    double d;
+    float f;
+    uint64_t i;
+    struct {
+        int size;
+        const void *data;
+    } str;
+    int tab[LDOUBLE_SIZE/4];
+} CValue;
+
+
+typedef struct SValue {
+    CType type;      /* type */
+    unsigned short r;      /* register + flags */
+    unsigned short r2;     /* second register, used for 'long long'
+                              type. If not used, set to VT_CONST */
+    CValue c;              /* constant, if VT_CONST */
+    struct Sym *sym;       /* symbol, if (VT_SYM | VT_CONST), or if
+    			      result of unary() for an identifier. */
+} SValue;
+#endif
+
+/* store register/short term op 'r' in lvalue 'v' 
+ This is usually after a mathematical operation. 
+
+ The value used here in v->c.i indicates the last value passed into sym_push.
+ 
+*/
 ST_FUNC void store(int r, SValue *v)
 {
-	dbginfo( "store( %d -> %d %lu %d TYPE %d)\n", r, v->type.t, v->c.i, v->r, v->type.t & VT_BTYPE );
+	dbginfo( "store( %d -> %d %lu reg %d TYPE %d)\n", r, v->type.t, v->c.i, v->r, v->type.t & VT_BTYPE );
 }
 
+/* */
 ST_FUNC void load(int r, SValue *sv)
 {
-	dbginfo( "load( %d -> %d %lu %d TYPE %d)\n", r, sv->type.t, sv->c.i, sv->r, sv->type.t & VT_BTYPE );
+	//XXX XXX Something is wrong. sv->c.i points to stack variables on stack OR stack-parameters.  Problem is right now, they can collide!!!
+	dbginfo( "load ( %d -> %d %lu reg %d TYPE %d)\n", r, sv->type.t, sv->c.i, sv->r, sv->type.t & VT_BTYPE );
 }
 
 ST_FUNC int gjmp(int t)
@@ -167,21 +215,30 @@ ST_FUNC void gfunc_call(int nb_args)
 }
 
 
-/* generate function prolog of type 't' */
+/* generate function prolog - the code that goes at the beginning of the
+    function.  We mimic gcc, to maximize compatibility with Espressif.
+
+  For Xtensa systems, using the modern ABI used in Espressif products, using
+  the callx0 conventions, the general idea is you load your variables into
+  register a2 ... a7.  If you overflow, you need to load your object onto the
+  stack.  I.e. sp+0, sp+4, sp+8.  You will break apart whole parameters this
+  way.
+
+  Return values are rather similar.
+  
+*/
 ST_FUNC void gfunc_prolog(CType *func_type)
 {
 	Sym *sym,*sym2;
 //	int n, nf, size, align, rs, struct_ret = 0;
 	int align;
 	int rs;
-
-#define  4 		//Size of register (in bytes)
-#define NR_CALLREGS  6		//You have A2 to A7 to pass variables into functions.
-
+	int param_reg = 4;
 	int n = 0;
 
-	int addr, pn, sn; /* pn=core, sn=stack */
 	CType ret_type;
+
+	func_sub_sp_offset = ind;
 
 	sym = func_type->ref;
 	func_vt = sym->type;
@@ -203,57 +260,54 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 		{
 			dbginfo( "Returning a struct... or is it an ellipisis Gonna need to figure this stuff out.  Wait.  how big is it??\n" );
 			n++;
-			struct_ret = 1;
-			func_vc = 12; /* Offset from fp of the place to store the result */
+			//struct_ret = 1;
+			//func_vc = 12; /* Offset from fp of the place to store the result */
 		}
 	}
 
-	for(sym2 = sym->next; sym2; sym2 = sym2->next) {
-		size = type_size(&sym2->type, &align);
+	//Step through all parameters to this function.
+	for(sym2 = sym->next; sym2; sym2 = sym2->next)
+	{
+		CType *type = &sym2->type;
+		int size = type_size(type, &align);
+		int param_addr;
+		//Need to be careful here:  We will need to select each value on up, unless it doesn't fit in the provided register space.
 		dbginfo( "symming: %p -> %d %d\n", sym2, size, n );
-		if (n < 4)
-			n += (size + 3) / REGSIZE;
-	}
 
-	//TODO:
-	// How do we set func_vc correctly?
- 	func_vc = 0;
-	o( 0xabcdabcd );
+		size = (size+3) & (~3);
 
-	dbginfo( "Need %d words for parameter passing.\n", n );
 
-	o( 0xbeefbeef );
-
-	pn = struct_ret, sn = 0;
-	while ((sym = sym->next)) {
-		CType *type;
-		type = &sym->type;
-		size = type_size(type, &align);
-		align = (align + 3) & ~3;
-		printf( " Param: %d %d %d\n", type, size, align );
-		size = (size + 3) >> 2;
-		if (pn < 4) {
-			addr = (nf + pn) * 4;
-			pn += size;
-			if (!sn && pn > 4)
-				sn = (pn - 4);
-		} else {
-		addr = (n + nf + sn) * 4;
-		sn += size;
+		if( (n + size)/REGSIZE > NR_CALLREGS )
+		{
+			loc -= size;
+			param_addr = loc; //A stack place.
+			//param_stack_addr += size;
 		}
-		sym_push(sym->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t),
-		     addr + 12);
-	}
-  //last_itod_magic=0;
-  //leaffunc = 1;
-  loc = 0;
+		else
+		{
+			//gen_modrm( fastcall_regs[n/REGSIZE], VT_LOCAL, NULL, param_addr);
+			param_addr = param_reg; //A register
+			param_reg += size;
+		}
 
+		dbginfo( "Now n is %d/%d pa: %d\n", n/REGSIZE, NR_CALLREGS, param_addr );
+
+		sym_push(sym2->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t), param_addr );
+		n += size;
+	}
+
+	//Fix up the stack.  If parameters were passed in on the stack, that will make us need more room.
+	//loc = -param_stack_addr-4;  //XXX THIS IS WRONG WRONG WRONG!!!
+
+	//XXX TODO WORK ON STACK MANAGEMENT
 
 }
 
 /* generate function epilog */
 ST_FUNC void gfunc_epilog(void)
 {
+	ind = func_sub_sp_offset;
+	ind -= 4;
 	printf( "gfunc_epilog()\n" );
 }
 
@@ -270,7 +324,19 @@ ST_FUNC int gtst(int inv, int t)
 /* generate an integer binary operation */
 void gen_opi(int op)
 {
-	printf( "gen_opi( %d )\n", op );
+
+	//Only supports binomial operators.
+	/* Other interesting things to look at:
+		gv(RC_INT);
+		vswap();
+		c=intr(gv(RC_INT));
+	*/
+
+        gv2(RC_INT, RC_INT);  //Expecting operands in integer registers, only.
+	int r = vtop[-1].r;
+	int fr = vtop[0].r;
+	vtop--;
+	printf( "gen_opi( %d('%c') ... %d %d )\n", op, op, r, fr ); //Note r,fr == order that operands will work in?  Or are they registers corresponding to the "r" in load/store?
 }
 
 
