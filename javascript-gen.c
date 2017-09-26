@@ -86,29 +86,27 @@ enum {
 #define RC_FRET    0x8000	/* function return: float register (not currently in use) */
 
 //static uint8_t fastcall_regs[NR_CALLREGS] = { TREG_A2, TREG_A3, TREG_A4, TREG_A5, TREG_A6, TREG_A7 };
-
-
 #else
 
 #include "tcc.h"
 
 ST_DATA const int reg_classes[NB_REGS] = {
-	RC_INT | RC_A0,
-	RC_INT | RC_A1,
-	RC_INT | RC_A2,
-	RC_INT | RC_A3,
-	RC_INT | RC_A4,
-	RC_INT | RC_A5,
-	RC_INT | RC_A6,
-	RC_INT | RC_A7,
-	RC_INT | RC_A8,
-	RC_INT | RC_A9,
-	RC_INT | RC_A10,
-	RC_INT | RC_A11,
-	RC_INT | RC_A12,
-	RC_INT | RC_A13,
-	RC_INT | RC_A14,
-	RC_INT | RC_A15,
+	RC_FLOAT | RC_INT | RC_A0,
+	RC_FLOAT | RC_INT | RC_A1,
+	RC_FLOAT | RC_INT | RC_A2,
+	RC_FLOAT | RC_INT | RC_A3,
+	RC_FLOAT | RC_INT | RC_A4,
+	RC_FLOAT | RC_INT | RC_A5,
+	RC_FLOAT | RC_INT | RC_A6,
+	RC_FLOAT | RC_INT | RC_A7,
+	RC_FLOAT | RC_INT | RC_A8,
+	RC_FLOAT | RC_INT | RC_A9,
+	RC_FLOAT | RC_INT | RC_A10,
+	RC_FLOAT | RC_INT | RC_A11,
+	RC_FLOAT | RC_INT | RC_A12,
+	RC_FLOAT | RC_INT | RC_A13,
+	RC_FLOAT | RC_INT | RC_A14,
+	RC_FLOAT | RC_INT | RC_A15,
 };
 
 ST_DATA unsigned long func_sub_sp_offset;
@@ -126,6 +124,7 @@ ST_FUNC void gsym(int t)
 }
 
 #if 0
+
 ST_FUNC void g(int c)
 {
 	int ind1;
@@ -137,6 +136,17 @@ ST_FUNC void g(int c)
 	dbginfo( "g(%x)\n", c );
 	cur_text_section->data[ind] = c;
 	ind = ind1;
+}
+
+#endif
+
+#if 0
+ST_FUNC void o(unsigned int c)
+{
+    while (c) {
+        g(c);
+        c = c >> 8;
+    }
 }
 #endif
 #if 0
@@ -202,15 +212,7 @@ ST_FUNC int gjmp(int t)
 ST_FUNC void gjmp_addr(int a)
 {
 	dbginfo( "gjmp_addr( %d )\n", a );
-/*
-    int r;
-    r = a - ind - 2;
-    if (r == (char)r) {
-        g(0xeb);
-        g(r);
-    } else {
-        oad(0xe9, a - ind - 5);
-    } */
+
 }
 
 
@@ -221,52 +223,6 @@ ST_FUNC void gfunc_call(int nb_args)
 }
 
 
-/* generate function prolog - the code that goes at the beginning of the
-    function.  We mimic gcc, to maximize compatibility with Espressif.
-
-  For Xtensa systems, using the modern ABI used in Espressif products, using
-  the callx0 conventions, the general idea is you load your variables into
-  register a2 ... a7.  If you overflow, you need to load your object onto the
-  stack.  I.e. sp+0, sp+4, sp+8.  You will break apart whole parameters this
-  way.
-
-   <-- Negative stack pointer  | SP(A1) |   Positive stack pointer -->
-   Locals | Backup Regs            | Parameters that can't fit in registers.
-
-
-ERR THIS SECTION LOOKS QUESTIONABLE
-  a0: Used for calling via the callx0 function (with GCC ABI)
-       Also, this stores the return address for the caller.
-  a1: Stack pointer
-  a2...a7:  Reserved for call registers. They DO NOT NEED TO BE PRESERVED!
-  a8...a12: These are the short-list.  Should we "cache" these?
-  a13,a14:  Reserved for immediate operations, i.e. add, or. Call clobbered.
-  a15:      GCC Uses this for help managing stacks.  I don't understand it,
-              but we should probably honor this behavior.
-
-  So, for our syms, in functions like sym_push, we will use the following
-  nomenclature: TODO: This is dumb.  Don't do it this way?
-                                      Actual SP
-                                         vvv
-   <--- Locals  -CS  | -CS Call Stack -24 | -20 Call registers -4 | 0 (rsvd) >
-
-
-  Once inside the function, on xtensa, you will need to move the stack pointer
-  back a good distance, i.e. 'addi sp, -32' to make room for all local
-  variables, register backups, and leaving room to push whatever is needed
-  on the stack to call functions that may need to have parameters passed
-  on the stack.
-
-  Code can be executed as usual.
-
-  Once complete, you will need to restore all variables you wish to restore,
-  being careful to maintain return variables. Return values are rather similar
-  to parameters, in that they go in the same a2 ... a7 ... stack principle.
-
-
-  TODO: for varidatic functions, we should probably prematurely load the regs
-  onto local stack.
-*/
 ST_FUNC void gfunc_prolog(CType *func_type)
 {
 	Sym *sym,*sym2;
@@ -286,7 +242,7 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 
 	if( func_var )
 	{
-		tcc_error( "error: xtensa port does not support ellipsis yet.\n" );
+		tcc_error( "error: javascript port does not support ellipsis yet.\n" );
 		return;
 	}
 

@@ -202,6 +202,10 @@ case "$cpu" in
     cpu="xtensa"
     targetos="esp82xx"
   ;;
+  javascript)
+    cpu="javascript"
+    targetos="html5"
+  ;;
   *)
     echo "Unsupported CPU"
     exit 1
