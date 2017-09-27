@@ -250,6 +250,7 @@ ERR THIS SECTION LOOKS QUESTIONABLE
                                          vvv
    <--- Locals  -CS  | -CS Call Stack -24 | -20 Call registers -4 | 0 (rsvd) >
 
+  TODO: Look at how c67 does it with a translation between stack to registers!
 
   Once inside the function, on xtensa, you will need to move the stack pointer
   back a good distance, i.e. 'addi sp, -32' to make room for all local
@@ -305,6 +306,8 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 		}
 	}
 
+	{
+	int sn = 0;
 	//Step through all parameters to this function.
 	for(sym2 = sym->next; sym2; sym2 = sym2->next)
 	{
@@ -328,9 +331,10 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 		}
 
 		dbginfo( "Now n is %d/%d pa: %d\n", n/REGSIZE, NR_CALLREGS, param_addr );
-
-		sym_push(sym2->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t), param_addr );
+		sym2->
+		//sym_push(sym2->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t), param_addr );
 		n += size;
+	}
 	}
 
 	//Fix up the stack.  If parameters were passed in on the stack, that will make us need more room.
