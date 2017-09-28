@@ -380,6 +380,7 @@ ST_FUNC void load(int r, SValue *sv)
 
 	if( valtype == VT_LOCAL || valtype == VT_LLOCAL  ) { is_mem = 1; is_stack = 1; memaddy = sv->c.i; }
 
+	printf( "LTYPE: %d\n", type->t );
 	if( is_mem )
 	{
 		//XXX TODO: check for t == VT_FLOAT, t == VT_DOUBLE
@@ -408,7 +409,7 @@ ST_FUNC void load(int r, SValue *sv)
 	}
 	else
 	{
-		tcc_error( "NOT MEM load %04x %d\n", sv->r, size );
+		tcc_error( "NOT MEM load %04x %04x  %p %d\n", sv->r, sv->r2, type->ref, size );
 	}
 
 }
@@ -675,12 +676,13 @@ void gen_opi(int op)
 		vswap();
 		c=intr(gv(RC_INT));
 	*/
-
+#if 1
 	int c, func = 0;
 	uint32_t opc = 0, r, fr;
 	unsigned short retreg = REG_IRET;
 	const char * ops = "";
 
+	printf( "GOT OP: %d %c\n", op, op );
 	
 
 	c=0;
@@ -710,15 +712,21 @@ void gen_opi(int op)
 	switch(c) {
 	case 1:
 		if ((vtop->r & VT_VALMASK) == VT_CMP || (vtop->r & (VT_VALMASK & ~1)) == VT_JMP)
+		{
+			printf( "GVMASK\n" );
 			gv(RC_INT);
+		}
+		printf( "vtop R: %x\n", vtop->r );
 		vswap();
+		printf( "vtop R: %x\n", vtop->r );
 		c=gv(RC_INT);
+		printf( "Got V\n" );
 		vswap();
-
+		printf( "vtop R: %x\n", vtop->r );
 		if((vtop->r & (VT_VALMASK | VT_LVAL | VT_SYM)) == VT_CONST) {
 			uint8_t cons = vtop->c.i;
 			r=vtop[-1].r;
-			gprintf( "__-%d / %d / %s %c \n", r, cons, ops, opc );
+			gprintf( "__-%d / %d / %s [%d%c] %c // CONSTANT: %d \n", r, cons, ops, op,op, opc, vtop->c.i );
 			goto done;
 		}
 		fr=gv(RC_INT);
@@ -765,9 +773,10 @@ done:
 	default:
 		tcc_error("gen_opi %i unimplemented!",op);
 	}
-
+#endif
 
 #if 0
+	int r, fr;
         gv2(RC_INT, RC_INT);  //Expecting operands in integer registers, only.
 
 	r = vtop[-1].r;
