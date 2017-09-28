@@ -26,26 +26,18 @@
    relocations, returns -1. */
 int code_reloc (int reloc_type)
 {
-	printf( "CODE RELOC: %d\n", reloc_type );
-	return 0;
+	printf( "Realloc\n" );
 
-/*
-    switch (reloc_type) {
-        case R_C60_32:
-	case R_C60LO16:
-	case R_C60HI16:
-        case R_C60_GOT32:
-        case R_C60_GOTOFF:
-        case R_C60_GOTPC:
-        case R_C60_COPY:
-            return 0;
+	switch (reloc_type)
+	{
+	case R_JS_CODE_ABS32:
+		return 1;
+	case R_JS_DATA_ABS32:
+		return 0;
+	}
 
-        case R_C60_PLT32:
-            return 1;
-    }
-
-    tcc_error ("Unknown relocation type: %d", reloc_type);
-    return -1;*/
+	tcc_error ("Unknown relocation type: %d", reloc_type);
+	return -1;
 }
 
 /* Returns an enumerator to describe whether and when the relocation needs a
@@ -53,8 +45,21 @@ int code_reloc (int reloc_type)
    different values. */
 int gotplt_entry_type (int reloc_type)
 {
-	printf( "gotplt_entry_type: %d\n", reloc_type );
-	return 0;
+	//printf( "gotplt_entry_type: %d\n", reloc_type );
+	printf( "Warning: this needs to be done better.\n" );
+	return ALWAYS_GOTPLT_ENTRY;
+#if 0
+/* Whether to generate a GOT/PLT entry and when. NO_GOTPLT_ENTRY is first so
+   that unknown relocation don't create a GOT or PLT entry */
+enum gotplt_entry {
+    NO_GOTPLT_ENTRY,	/* never generate (eg. GLOB_DAT & JMP_SLOT relocs) */
+    BUILD_GOT_ONLY,	/* only build GOT (eg. TPOFF relocs) */
+    AUTO_GOTPLT_ENTRY,	/* generate if sym is UNDEF */
+    ALWAYS_GOTPLT_ENTRY	/* always generate (eg. PLTOFF relocs) */
+};
+#endif
+
+	//Could be BUILD_GOT_ONLY, NO_GOTPLT_ENTRY or ALWAYS_GOTPLT_ENTRY ... OR -1 if a problem.
 /*
     switch (reloc_type) {
         case R_C60_32:
@@ -81,19 +86,19 @@ ST_FUNC unsigned create_plt_entry(TCCState *s1, unsigned got_offset, struct sym_
 {
     //tcc_error("C67 got not implemented");
 	printf("create_plt_entry: %p %d %p\n", s1, got_offset, attr );
-    return 0;
+	return 0;
 }
 
 /* relocate the PLT: compute addresses and offsets in the PLT now that final
    address for PLT and GOT are known (see fill_program_header) */
 ST_FUNC void relocate_plt(TCCState *s1)
 {
-	printf( "Relocate plt: %p\n", s1 );
-#if 0
     uint8_t *p, *p_end;
 
     if (!s1->plt)
       return;
+
+    printf( "Warning: relocate_plt not implemented.\n" );
 
     p = s1->plt->data;
     p_end = p + s1->plt->data_offset;
@@ -104,15 +109,48 @@ ST_FUNC void relocate_plt(TCCState *s1)
             /* XXX: TODO */
         }
    }
-#endif
 
 }
 
-void relocate_init(Section *sr) {}
+
+
+static ElfW_Rel *qrel; /* ptr to next reloc entry reused */
+static Section *srl;
+
+void relocate_init(Section *sr)
+{
+	qrel = (ElfW_Rel *) sr->data;
+	srl = sr;
+	printf( "Initializing relocation\n" );
+}
 
 void relocate(TCCState *s1, ElfW_Rel *rel, int type, unsigned char *ptr, addr_t addr, addr_t val)
 {
-	printf( "Do relocation %p %p %d %p %d %d\n", s1, rel, type, ptr, addr, val );
+
+	int sym_index, esym_index;
+
+	sym_index = ELFW(R_SYM)(rel->r_info);     //Not sure what this is.
+
+	uint32_t place_to_patch = rel->r_offset;  //Offset from beginning of text section.
+	uint8_t  * ptr_to_patch = ptr;            //The actual start of the line that needs patching.
+	// Set the new patch value to "val"
+
+	printf( "Do relocation %p %p %d %p [%d %d] ---> %p  SYM INDEX: %d  SEC: %p\n", s1, rel, type, ptr, addr, val, rel->r_offset, sym_index, srl->sh_addr );
+
+#if 0
+
+	switch( type )
+	{
+	case R_JS_CODE_ABS32:
+		printf( "Relocate code\n" );
+		printf( "%s\n", ptr );
+		break;
+	case R_JS_DATA_ABS32:
+		printf( "Relocate data\n" );
+		break;
+	}
+#endif
+
 #if 0
     switch(type) {
         case R_C60_32:

@@ -307,34 +307,34 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 	}
 
 	{
-	int sn = 0;
-	//Step through all parameters to this function.
-	for(sym2 = sym->next; sym2; sym2 = sym2->next)
-	{
-		CType *type = &sym2->type;
-		int size = type_size(type, &align);
-		int param_addr;
-		//Need to be careful here:  We will need to select each value on up, unless it doesn't fit in the provided register space.
-		dbginfo( "symming: %p -> %d %d\n", sym2, size, n );
-
-		size = (size+3) & (~3);
-		if( (n + size)/REGSIZE > NR_CALLREGS )
+		int sn = 0;
+		//Step through all parameters to this function.
+		for(sym2 = sym->next; sym2; sym2 = sym2->next)
 		{
-			loc -= size;
-			param_addr = loc; //A stack place.
-			//param_stack_addr += size;
-		}
-		else
-		{
-			param_addr = param_reg; //A register
-			param_reg += size;
-		}
+			CType *type = &sym2->type;
+			int size = type_size(type, &align);
+			int param_addr;
+			//Need to be careful here:  We will need to select each value on up, unless it doesn't fit in the provided register space.
+			dbginfo( "symming: %p -> %d %d\n", sym2, size, n );
 
-		dbginfo( "Now n is %d/%d pa: %d\n", n/REGSIZE, NR_CALLREGS, param_addr );
-		sym2->
-		//sym_push(sym2->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t), param_addr );
-		n += size;
-	}
+			size = (size+3) & (~3);
+			if( (n + size)/REGSIZE > NR_CALLREGS )
+			{
+				loc -= size;
+				param_addr = loc; //A stack place.
+				//param_stack_addr += size;
+			}
+			else
+			{
+				param_addr = param_reg; //A register
+				param_reg += size;
+			}
+
+			dbginfo( "Now n is %d/%d pa: %d\n", n/REGSIZE, NR_CALLREGS, param_addr );
+			//sym2->
+			//sym_push(sym2->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t), param_addr );
+			n += size;
+		}
 	}
 
 	//Fix up the stack.  If parameters were passed in on the stack, that will make us need more room.
