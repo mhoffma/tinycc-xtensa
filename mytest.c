@@ -20,11 +20,20 @@ int MyTest( int a, unsigned char ll, unsigned char b, struct test t )
 		int m = r * k;
 		r += m;
 	}
+	else
+	{
+		r+= 9;
+	}
 	r = t.a;
 	r += 9+a;
 	r += global;
 
 	return r * k;
+}
+
+int quickret( int a )
+{
+	return a+5;
 }
 
 void AnotherTest( int k )

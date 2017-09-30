@@ -22,6 +22,7 @@
 
 /*
   DISCLAIMER: THIS IS NOT INTENDED AS A PERFORMANT C TO JAVASCRIPT COMPILER.
+  Just an educational fun-time thinger.
 
   This is a pretend processor.  Really geared for a bare-minimum implementation
   of a TCC target.  It's a totally made up architecture, but exists mostly so
@@ -202,11 +203,11 @@ ST_FUNC void gsym_addr(int t, int a)
 
 	if( !t )
 	{
-		gprintf( "[lbl] code_%08x:\n", ind );
+		gprintf( "	case 0x%08x:\n", ind );
 	}
 	else
 	{
-		gprintf( "[lbl] code_%08x: //Patch %08x\n", ind, t );
+		gprintf( "	case 0x%08x: //Patch %08x\n", ind, t );
 	}
 	//Also, patch the sym.
 	
@@ -331,7 +332,7 @@ ST_FUNC void load(int r, SValue *sv)
 ST_FUNC int gjmp(int t)
 {
 	int ret = ind+11;		//Set patch address to current location + the offset to the "00000000" in code_.
-	gprintf( "	goto code_%08x; //gjmp(%d) r: %x t: %x vtop->c.i: %x %x\n", t, t, ind, t, vtop->c.i, vtop->r );
+	gprintf( "	state = 0x%08x; break; //gjmp(%d) r: %x t: %x vtop->c.i: %x %x\n", t, t, ind, t, vtop->c.i, vtop->r );
 	return ret;
 }
 
@@ -435,19 +436,24 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 		size = ( size+ (REGSIZE-1) ) & (~ (REGSIZE-1) ); //This handles rounding up to the closest next unit.
 		if( type->t == VT_FLOAT )
 		{
-			gprintf( "\ttcpush( float32touint32( %s ), %d );\n",  get_tok_str( sym2->v & ~SYM_FIELD, 0 ), 4 );
+			gprintf( "\ttcc_push( float32touint32( %s ), %d );\n",  get_tok_str( sym2->v & ~SYM_FIELD, 0 ), 4 );
 		}
 		else if( type->t == VT_DOUBLE )
 		{
-			gprintf( "\ttcpush( float64touint64( %s ), %d );\n",  get_tok_str( sym2->v & ~SYM_FIELD, 0 ), 8 );
+			gprintf( "\ttcc_push( float64touint64( %s ), %d );\n",  get_tok_str( sym2->v & ~SYM_FIELD, 0 ), 8 );
 		}
 		else  //Uint8array or actual number.
 		{
-			gprintf( "\ttcpush( %s, %d );\n",  get_tok_str( sym2->v & ~SYM_FIELD, 0 ), size );
+			gprintf( "\ttcc_push( %s, %d );\n",  get_tok_str( sym2->v & ~SYM_FIELD, 0 ), size );
 		}
 	}
 
 	gprintf( "	//Current loc: %d\n", loc );
+
+	gprintf( "	var state = 0;\n" );
+	gprintf( "	looptop: do { switch( state ) {\n" );
+	gprintf( "	case 0x00000000:	//Default function state\n" );
+
 }
 
 /* generate function epilog */
@@ -455,6 +461,8 @@ ST_FUNC void gfunc_epilog(void)
 {
 	//Use func_ret_type, too!!!
 	//ind -= 4;
+
+	gprintf( "	break looptop; } } while( true );\n" );
 
 	//XXX TODO: How do we return structures?
 	//XXX TODO: Right now this doesn't actually return anything.
@@ -546,7 +554,7 @@ printf( "gtst(%d, %d, %d, %d  %d %d)\n",v, inv, t, ind, vtop->r, nocode_wanted )
 	{
 		//const char * op=mapcc(inv?negcc(vtop->c.i):vtop->c.i);
 		//printf( "Encode branch CMP: %d %d <<%s>>   %d\n", r, t, op, vtop->c.i );
-		gprintf( "	if( cpua0 %c= 0 )   goto code_00000000; //r: %x t: %x vtop->c.i: %x %x\n", inv?'=':'!', r, t, vtop->c.i, vtop->r );
+		gprintf( "	if( cpua0 %c= 0 )   state = 0x00000000; break; //r: %x t: %x vtop->c.i: %x %x\n", inv?'=':'!', r, t, vtop->c.i, vtop->r );
 		t = r+30;
 		gprintf( "	//Setting t = %d\n", t );
 

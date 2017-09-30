@@ -37,25 +37,26 @@ function tcc_read( location, size, type )
 		for( var i = 0; i < (((size&~3)+4)|0); i+=4 )
 		{
 			ret <<= 32;
-			ret |= memarray[location + i] = value;
+			ret |= memarray[location + i];
 		}
 		return ret;
 	} else {
 		var ret = new Uint8Array( size );
 		for( var i = 0; i < ((size&~3)+4)|0; i++ )
 		{
-			var v = memarray[location + i];
+			var v = 0;
 			for( var j = 0; j < 4; j++ )
 			{
-				v |= value[j+i*4]<<(j*8);
+				v |= memarray[location + j+i*4]<<(j*8);
 			}
+			ret[i] = v;
 		}
 		return ret;
 	}
 }
 function tcc_readreg( location )
 {
-	tcc_write( location, 4, value );
+	return tcc_read( location, 4, 'number' );
 }
 function tcc_pop( size, type )
 {
@@ -65,8 +66,8 @@ function tcc_pop( size, type )
 }
 function tcc_push( size, val )
 {
-	cpusp -= size;
-	var ret = tcc_write( cpusp, size, val );
+	cpusp -= 4;
+	var ret = tcc_write( cpusp, 4, val );
 	return ret;
 }
 function float32touint32( f )
@@ -99,5 +100,5 @@ function uint64tofloat64( f )
 }
 function utos32( f )
 {
-	return (new int32Array([f]))[0];
+	return (new Int32Array([f]))[0];
 }
