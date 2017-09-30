@@ -36,6 +36,15 @@ int quickret( int a )
 	return a+5;
 }
 
+int strtest( const char * st )
+{
+	int ret = 0;
+	int c;
+	while( (c = *(st++)) )
+		ret += c;
+	return ret;
+}
+
 void AnotherTest( int k )
 {
 	int a;

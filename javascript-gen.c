@@ -181,7 +181,8 @@ ST_FUNC void gsym_addr(int t, int a)
 		int r;
 
 		/* We look back and see if the value we're patching points back even
-		   further */
+		   further.  We can see this because we use an eight-digit hex number
+		   to represent states. */
 		r = sscanf(ptr, "%08x", &n);
 
 		if( r < 1 )
@@ -390,7 +391,7 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 	//dbginfo( "gfunc_prolog(%d %p  %p %d %d)\n", func_type->t, func_type->ref, sym, func_vt.t, func_var );
 
 	func_sub_sp_offset = loc;
-	loc = -4;
+	loc = 0;
 
 	if ((func_vt.t & VT_BTYPE) == VT_STRUCT)
 	{
@@ -423,7 +424,7 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 
 		sym_push(sym2->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t), loc );
 	}
-	gprintf( ") //Loc in: %d, vtop: %p\n{\n", loc, vtop );
+	gprintf( ") //Loc in: %d, vtop: %p\n{\n	tccprolog();\n", loc, vtop );
 
 	//First, load these values onto the stack.
 	for(sym2 = sym->next; sym2; sym2 = sym2->next)
@@ -436,15 +437,15 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 		size = ( size+ (REGSIZE-1) ) & (~ (REGSIZE-1) ); //This handles rounding up to the closest next unit.
 		if( type->t == VT_FLOAT )
 		{
-			gprintf( "\ttcc_push( float32touint32( %s ), %d );\n",  get_tok_str( sym2->v & ~SYM_FIELD, 0 ), 4 );
+			gprintf( "\ttcc_push( %d, float32touint32( %s ), %d );\n", 4, get_tok_str( sym2->v & ~SYM_FIELD, 0 )  );
 		}
 		else if( type->t == VT_DOUBLE )
 		{
-			gprintf( "\ttcc_push( float64touint64( %s ), %d );\n",  get_tok_str( sym2->v & ~SYM_FIELD, 0 ), 8 );
+			gprintf( "\ttcc_push( %d, float64touint64( %s ), %d );\n", 8, get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
 		}
 		else  //Uint8array or actual number.
 		{
-			gprintf( "\ttcc_push( %s, %d );\n",  get_tok_str( sym2->v & ~SYM_FIELD, 0 ), size );
+			gprintf( "\ttcc_push( %d, %s );\n", size, get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
 		}
 	}
 

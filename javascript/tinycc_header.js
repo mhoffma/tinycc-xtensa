@@ -1,4 +1,5 @@
-var cpusp = 1048576;
+var cpusp = 1048576|0;
+var cpuspl = 0|0;
 var cpua0 = 0|0;
 var cpua1 = 0|0;
 var cpua2 = 0.0;
@@ -60,14 +61,14 @@ function tcc_readreg( location )
 }
 function tcc_pop( size, type )
 {
-	var ret = tcc_read( cpusp, size, type );
-	cpusp += size;
+	var ret = tcc_read( cpuspl, size, type );
+	cpuspl += size;
 	return ret;
 }
 function tcc_push( size, val )
 {
-	cpusp -= 4;
-	var ret = tcc_write( cpusp, 4, val );
+	cpuspl -= 4;
+	var ret = tcc_write( cpuspl, 4, val );
 	return ret;
 }
 function float32touint32( f )
@@ -101,4 +102,8 @@ function uint64tofloat64( f )
 function utos32( f )
 {
 	return (new Int32Array([f]))[0];
+}
+function tccprolog()
+{
+	cpuspl = cpusp;
 }
