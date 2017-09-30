@@ -84,7 +84,6 @@ enum {
 #include "tcc.h"
 #include <stdarg.h>
 
-ST_DATA FILE * f_js;
 ST_DATA CType func_ret_type;
 ST_DATA unsigned long func_sub_sp_offset;
 ST_DATA int func_align;
@@ -100,6 +99,24 @@ ST_DATA const int reg_classes[NB_REGS] = {
 	RC_FLOAT | RC_A4,
 };
 
+/* USEFUL STUFF:
+
+
+Patching, etc.
+
+	t = usually the symbol used for "hey, TCC, remember this address to patch
+		when you get done and come back around.
+
+	ind = current output locaiton, usually used to patch variables.
+
+	patching variables is done by seeking back to the last thing needing
+	patching, and looking at its value.  If 0, then keep patching up the
+	chain.
+
+
+
+*/
+
 
 /* The g / gprintf functions are for emitting code.  This is normally done for
    assembly opcodes, however, we can abuse it and output plain text into ELF 
@@ -108,113 +125,6 @@ ST_FUNC void g(char c)
 {
 	int ind1;
 
-	if( !f_js )
-	{
-		FILE * f = fopen( "a.out.html", "w" );
-		fprintf( f, "<HTML><HEAD><SCRIPT src=a.out.js></HEAD><BODY></BODY></HTML>" );
-		fclose( f );
-		f_js = fopen( "a.out.js", "w" );
-		fprintf( f_js, 
-"var cpusp = 1048576;\n"
-"var cpua0 = 0|0;\n"
-"var cpua1 = 0|0;\n"
-"var cpua2 = 0.0;\n"
-"var cpua3 = 0.0;\n"
-"var memarray = new Uint8Array(stackpointer);\n"
-"function tcc_write( location, size, value ) {\n"
-"	if( typeof value === 'number' )\n"
-"	{\n"
-"		for( var i = 0; i < ((size&~3)+4)|0; i+=4 )\n"
-"		{\n"
-"			memarray[location + i] = value;\n"
-"			value>>=32;\n"
-"		}\n"
-"	} else {\n"
-"		for( var i = 0; i < ((size&~3)+4)|0; i++ )\n"
-"		{\n"
-"			var v = 0;\n"
-"			for( var j = 0; j < 4; j++ )\n"
-"			{\n"
-"				v |= value[j+i*4]<<(j*8);\n"
-"			}\n"
-"			memarray[location + i] = v;\n"
-"		}\n"
-"	}\n"
-"}\n"
-"function tcc_writereg( location, value ) { tcc_write( location, 4 value ); }"
-"function tcc_read( location, size, type )\n"
-"{\n"
-"	if( type === 'number' )\n"
-"	{\n"
-"		var ret = 0;\n"
-"		for( var i = 0; i < ((size&~3)+4)|0); i+=4 )\n"
-"		{\n"
-"			ret <<= 32;\n"
-"			ret |= memarray[location + i] = value;\n"
-"		}\n"
-"		return ret;\n"
-"	} else {\n"
-"		var ret = new Uint8Array( size );\n"
-"		for( var i = 0; i < ((size&~3)+4)|0; i++ )\n"
-"		{\n"
-"			var v = memarray[location + i];\n"
-"			for( var j = 0; j < 4; j++ )\n"
-"			{\n"
-"				v |= value[j+i*4]<<(j*8);\n"
-"			}\n"
-"		}\n"
-"		return ret;\n"
-"	}\n"
-"}\n"
-"function tcc_readreg( location ) { tcc_write( location, 4, value ); }"
-"function tcc_pop( size, type )\n"
-"{\n"
-"	var ret = tcc_read( stackpointer, size, type );\n"
-"	stackpointer += size;\n"
-"	return ret;\n"
-"}\n"
-"function tcc_push( size, val )\n"
-"{\n"
-"	stackpointer -= size;\n"
-"	var ret = tcc_write( stackpointer, size, val );\n"
-"	return ret;\n"
-"}\n"
-"function float32touint32( f )\n"
-"{\n"
-"	var farr = new Float32Array(1);\n"
-"	farr[0] = f;\n"
-"	var iarr = new Uint32Array(farr.buffer);\n"
-"	return iarr[0];\n"
-"}\n"
-"function uint32tofloat32( f )\n"
-"{\n"
-"	var iarr = new Uint32Array(1);\n"
-"	iarr[0] = f;\n"
-"	var farr = new Float32Array(iarr.buffer);\n"
-"	return farr[0];\n"
-"}\n"
-"function float64touint64( f )\n"
-"{\n"
-"	var farr = new Float64Array(1);\n"
-"	farr[0] = f;\n"
-"	var iarr = new Uint64Array(farr.buffer);\n"
-"	return iarr[0];\n"
-"}\n"
-"function uint64tofloat64( f )\n"
-"{\n"
-"	var iarr = new Uint64Array(1);\n"
-"	iarr[0] = f;\n"
-"	var farr = new Float64Array(iarr.buffer);\n"
-"	return farr[0];\n"
-"}\n"
-"function utos32( f )\n"
-"{\n"
-"	return (new int32Array([f]))[0];\n"
-"}\n"
- );
-	}
-
-	fputc( c, f_js );
 
 	if (nocode_wanted)
 		return;
@@ -254,51 +164,49 @@ ST_FUNC void gprintf( const char * format, ... )
 /* output a symbol and patch all calls to it */
 ST_FUNC void gsym_addr(int t, int a)
 {
+	/* This looks a little weird but handles patching.  This is so you can say
+	   "I'm going to update a symbol, somewhere in the future.  You don't have
+	   to know where you'll be jumping exactly.  Once the target is generated,
+	   this code will go back and update refrences to it.  Also, it's treated
+	   kind of like a linked list.  If you go back and patch a value, but it's
+	   nonzero, then it's actually pointing FURTHER back, so you'll have to
+	   patch it's target as well.
+	*/
 
-#if 0
-    while (t) {
-        unsigned char *ptr = cur_text_section->data + t;
-        uint32_t n = read32le(ptr); /* next value */
-        write32le(ptr, a - t - 4);
-        t = n;
-    }
-#endif
-
-	//This looks a little weird but handles patching.
 	while (t) {
 		unsigned char *ptr = cur_text_section->data + t;
 		uint32_t n;  /* next value */
 		char buff[11];
 		int r;
-//		printf( "PTR TO PATCH: %p\n", ptr );
+
+		/* We look back and see if the value we're patching points back even
+		   further */
 		r = sscanf(ptr, "%08x", &n);
+
 		if( r < 1 )
-			tcc_error( "Can't patch pointer at bad location: %s", ptr ); 
-		//write32le(ptr, a - t - 4);
-		//printf( "Patch: %s %d %d %d\n", ptr, a, t, n );
+			tcc_error( "Can't patch %d pointer at bad location: %d: %s", ind, 
+				t, ptr ); 
+
+		/* Overwrite the text where it was with the new target location */
 		sprintf( buff, "%08x", a );
 		memcpy( ptr, buff, 8 );
-		//printf( "::%s:%s::\n", ptr, buff );
 		t = n;
 	}
 
+
 	{
-		Sym *sym = get_sym_ref(&char_pointer_type, cur_text_section, a, 0);
-		printf( "SYM: %p = %p, a: %p SYM:%p  T: %p  PLACE TO PATCH: %p\n", &char_pointer_type, cur_text_section, a, sym, t, ind );
+		//Sym *sym = get_sym_ref(&char_pointer_type, cur_text_section, a, 0);
+		//gprintf( "	//SYM: %p = %p, a: %p T: %p  PLACE TO PATCH: %p\n", &char_pointer_type, cur_text_section, a, t, ind );
 	}
 	//greloc(cur_text_section, sym, t, R_JS_CODE_ABS32); //S, Sym, Offset, Type
 
 	if( !t )
 	{
-		gprintf( "code_%08x:\n", ind );
+		gprintf( "[lbl] code_%08x:\n", ind );
 	}
 	else
 	{
-		gprintf( "code_%08x: //Patch %08x\n", ind, t );
-
-//	sprintf( &cur_text_section->data[offset], "%08x", newtarget );
-
-		//gpatchptr( t, ind );
+		gprintf( "[lbl] code_%08x: //Patch %08x\n", ind, t );
 	}
 	//Also, patch the sym.
 	
@@ -338,12 +246,12 @@ ST_FUNC void store(int r, SValue *sv)
 		//XXX TODO: check for t == VT_FLOAT, t == VT_DOUBLE
 		if( size == 4 )
 		{
-			gprintf( "	tcc_write( %s%d, %d, cpua%d );\n", is_stack?"stackpointer":"", memaddy, size, r );
+			gprintf( "	tcc_write( %s%d, %d, cpua%d );\n", is_stack?"cpusp":"", memaddy, size, r );
 		}
 		else if( size == 8 )
 		{
-			gprintf( "	tcc_write( %s%d, %d, cpua%d );\n", is_stack?"stackpointer":"", memaddy, size, r );
-			gprintf( "	tcc_write( %s%d, %d, cpua%d );\n", is_stack?"stackpointer":"", memaddy+4, size, sv->r2 );
+			gprintf( "	tcc_write( %s%d, %d, cpua%d );\n", is_stack?"cpusp":"", memaddy, size, r );
+			gprintf( "	tcc_write( %s%d, %d, cpua%d );\n", is_stack?"cpusp":"", memaddy+4, size, sv->r2 );
 		}
 		else
 		{
@@ -380,18 +288,18 @@ ST_FUNC void load(int r, SValue *sv)
 
 	if( valtype == VT_LOCAL || valtype == VT_LLOCAL  ) { is_mem = 1; is_stack = 1; memaddy = sv->c.i; }
 
-	printf( "LTYPE: %d\n", type->t );
+	//printf( "LTYPE: %d\n", type->t );
 	if( is_mem )
 	{
 		//XXX TODO: check for t == VT_FLOAT, t == VT_DOUBLE
 		if( size == 4 )
 		{
-			gprintf( "	cpua%d = tcc_readreg( %s%d );\n", r, is_stack?"stackpointer":"", memaddy );
+			gprintf( "	cpua%d = tcc_readreg( %s%d );\n", r, is_stack?"cpusp":"", memaddy );
 		}
 		else if( size == 8 )
 		{
-			gprintf( "	cpua%d = tcc_readreg( %s%d );\n", r, is_stack?"stackpointer":"", memaddy );
-			gprintf( "	cpua%d = tcc_readreg( %s%d );\n", sv->r2, is_stack?"stackpointer":"", memaddy+4 );
+			gprintf( "	cpua%d = tcc_readreg( %s%d );\n", r, is_stack?"cpusp":"", memaddy );
+			gprintf( "	cpua%d = tcc_readreg( %s%d );\n", sv->r2, is_stack?"cpusp":"", memaddy+4 );
 		}
 		else
 		{
@@ -402,14 +310,19 @@ ST_FUNC void load(int r, SValue *sv)
 	}
 	else if( ( sv->r & VT_VALMASK) == VT_CONST )
 	{
+		//Got a constant.  Note that this is straight assigning a constant to
+		//a register, unlike when an immediate const is places after an
+		//operator.
 		gprintf( "	cpua%d = %d;\n", r, sv->c.i );
 	}
 	else if( ( sv->r & VT_VALMASK ) == VT_JMP || ( sv->r & VT_VALMASK ) == VT_JMP )
-	{	gprintf( "	//JMP Placeholder (no code needed)\n" );
+	{
+		gprintf( "	//JMP Placeholder (no code needed)\n" );
 	}
 	else
 	{
-		tcc_error( "NOT MEM load %04x %04x  %p %d\n", sv->r, sv->r2, type->ref, size );
+		//tcc_error( "NOT MEM load %04x %04x  %p %d\n", sv->r, sv->r2, type->ref, size );
+		gprintf( "	//XXX WARNING: Unknown load %04x %04x   %p %d   Const %d\n", sv->r, sv->r2, type->ref, size, sv->c.i );
 	}
 
 }
@@ -417,16 +330,15 @@ ST_FUNC void load(int r, SValue *sv)
 
 ST_FUNC int gjmp(int t)
 {
-	gprintf( "gjmp( %d ) TODO\n", t );
-//    return gjmp2(0xe9, t);
-	return 0;
+	int ret = ind+11;		//Set patch address to current location + the offset to the "00000000" in code_.
+	gprintf( "	goto code_%08x; //gjmp(%d) r: %x t: %x vtop->c.i: %x %x\n", t, t, ind, t, vtop->c.i, vtop->r );
+	return ret;
 }
 
 /* generate a jump to a fixed address */
 ST_FUNC void gjmp_addr(int a)
 {
-	gprintf( "gjmp_addr( %d ) TODO\n", a );
-
+	gjmp(a);
 }
 
 
@@ -454,6 +366,9 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 
 	sym = func_type->ref;
 
+	//Tell ELF about this function call, so we get a symbol generated for us.
+	put_elf_reloc(symtab_section, cur_text_section, ind, R_JS_CODE_ABS32, 0);
+
 	gprintf( "function %s(", funcname );
 
 	func_vt = sym->type;
@@ -466,7 +381,7 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 	}
 
 	{
-	        const char * ptr = section_ptr_add(data_section, 6);
+	        char * ptr = section_ptr_add(data_section, 6);
         	memcpy(ptr, "_start", 6);
 	}
 
@@ -569,21 +484,23 @@ static const char * mapcc( int cc )
 {
 	switch( cc )
 	{
-		case TOK_ULT:	return "	cpua0 = (cpua%d < cpu%d)?1:0;\n";
-		case TOK_UGE:	return "	cpua0 = (cpua%d >= cpu%d)?1:0;\n";
-		case TOK_EQ:	return "	cpua0 = (cpua%d == cpu%d)?1:0;\n";
-		case TOK_NE:	return "	cpua0 = (cpua%d != cpu%d)?1:0;\n";
-		case TOK_ULE:	return "	cpua0 = (cpua%d <= cpu%d)?1:0;\n";
-		case TOK_UGT:	return "	cpua0 = (cpua%d > cpu%d)?1:0;\n";
-		case TOK_LT:	return "	cpua0 = (utos32(cpua%d) < utos32(cpu%d))?1:0;\n";
-		case TOK_GE:	return "	cpua0 = (utos32(cpua%d) >= utos32(cpu%d))?1:0;\n";
-		case TOK_LE:	return "	cpua0 = (utos32(cpua%d) <= utos32(cpu%d))?1:0;\n";
-		case TOK_GT:	return "	cpua0 = (utos32(cpua%d) > utos32(cpu%d))?1:0;\n";
+		case TOK_ULT:	return "	cpua%d = (cpua%d %s< %s%d)?1:0;\n";
+		case TOK_UGE:	return "	cpua%d = (cpua%d %s>= %s%d)?1:0;\n";
+		case TOK_EQ:	return "	cpua%d = (cpua%d %s== %s%d)?1:0;\n";
+		case TOK_NE:	return "	cpua%d = (cpua%d %s!= %s%d)?1:0;\n";
+		case TOK_ULE:	return "	cpua%d = (cpua%d %s<= %s%d)?1:0;\n";
+		case TOK_UGT:	return "	cpua%d = (cpua%d %s> %s%d)?1:0;\n";
+		case TOK_LT:	return "	cpua%d = (utos32(cpua%d) %s< utos32(%s%d))?1:0;\n";
+		case TOK_GE:	return "	cpua%d = (utos32(cpua%d) %s>= utos32(%s%d))?1:0;\n";
+		case TOK_LE:	return "	cpua%d = (utos32(cpua%d) %s<= utos32(%s%d))?1:0;\n";
+		case TOK_GT:	return "	cpua%d = (utos32(cpua%d) %s> utos32(%s%d))?1:0;\n";
 	}
 	tcc_error( "Error: mapcc operator not implemneted (%02x)\n", cc );
 	return "";
 }
 
+#if 0
+//XXX TODO: This function should be used when 'inv' is sent.
 static int negcc(int cc)
 {
   switch(cc)
@@ -604,13 +521,15 @@ static int negcc(int cc)
   tcc_error("unexpected condition code");
   return TOK_NE;
 }
+#endif
 
 /* generate a test. set 'inv' to invert test. Stack entry is popped */
 int gtst(int inv, int t)
 {
 	int v = vtop->r & VT_VALMASK;
 	int r = ind;
-	int p = vtop->c.i;
+
+//	gprintf( "in T: %d\n", t );
 /*  int v, r;
 	int p;
           p = vtop->c.i;
@@ -627,8 +546,10 @@ printf( "gtst(%d, %d, %d, %d  %d %d)\n",v, inv, t, ind, vtop->r, nocode_wanted )
 	{
 		//const char * op=mapcc(inv?negcc(vtop->c.i):vtop->c.i);
 		//printf( "Encode branch CMP: %d %d <<%s>>   %d\n", r, t, op, vtop->c.i );
-		gprintf( "	if( cpua0 != 0 )   goto code_00000000; //r: %x t: %x vtop->c.i: %x %x\n", r, t, vtop->c.i, vtop->r );
+		gprintf( "	if( cpua0 %c= 0 )   goto code_00000000; //r: %x t: %x vtop->c.i: %x %x\n", inv?'=':'!', r, t, vtop->c.i, vtop->r );
 		t = r+30;
+		gprintf( "	//Setting t = %d\n", t );
+
 	}
 	else if (v == VT_JMP || v == VT_JMPI)
 	{
@@ -652,18 +573,19 @@ printf( "gtst(%d, %d, %d, %d  %d %d)\n",v, inv, t, ind, vtop->r, nocode_wanted )
 					printf( "Encode branch JMP: %p %d %d\n", x, p, t );
 				}
 				t = vtop->c.i;
+				gprintf( "	//Setting t = %d\n", t );
 			}
 		}
 		else
 		{
 			t = gjmp(t);
+			gprintf( "	//Setting t = %d\n", t );
 			gsym(vtop->c.i);
 		}
 	}
 	gprintf( "	//gtst(%d, %d, %d  vtop->r=%02x %d ++ %d ++ %lu) (probably no code needed?)\n", inv, t, ind, vtop->r, nocode_wanted,     vtop->type.t, vtop->c.i );
 	vtop--;
 	return t;
-
 }
 
 /* generate an integer binary operation */
@@ -677,36 +599,40 @@ void gen_opi(int op)
 		c=intr(gv(RC_INT));
 	*/
 #if 1
-	int c, func = 0;
-	uint32_t opc = 0, r, fr;
+	int c;
+	uint32_t r, fr;
 	unsigned short retreg = REG_IRET;
 	const char * ops = "";
 
-	printf( "GOT OP: %d %c\n", op, op );
-	
+	//printf( "GOT OP: %d %c\n", op, op );
+	const char * outputenc = "	cpua%d = cpua%d %s %s%d;\n";
 
 	c=0;
 	switch(op) {
-	case '+': 	opc = '+'; 	c=1;	break;
+	case '+': 	ops = "+"; 	c=1;	break;
 	case TOK_ADDC1: ops = "addc";	c=1;	break;
-	case '-':	opc = '-';	c=1;	break;
+	case '-':	ops = "-";	c=1;	break;
 	case TOK_SUBC1: /* sub with carry generation */	ops = "subc";	c=1;	break;
 	case TOK_ADDC2: /* add with carry use */	ops = "addcu";	c=1;	break;
 	case TOK_SUBC2: /* sub with carry use */	ops = "subcu";	c=1;	break;
-	case '&':	opc = '&';	c=1;	break;
-	case '^':	opc = '^';	c=1;	break;
-	case '|':	opc = '|';	c=1;	break;
-	case '*':	opc = '*';	c=1;	break;
+	case '&':	ops = "&";	c=1;	break;
+	case '^':	ops = "^";	c=1;	break;
+	case '|':	ops = "|";	c=1;	break;
+	case '*':	ops = "*";	c=1;	break;
 	case TOK_SHL:	ops = "<<";	c=2;	break;
 	case TOK_SHR:	ops = ">>";	c=2;	break;
 	case TOK_SAR:	ops = "<<<";	c=2;	break;
 	case '/':
-	case TOK_PDIV:  opc = '/';	c=3;	break;
+	case TOK_PDIV:  ops = "/";	c=3;	break;
 	case TOK_UDIV:	ops = "udiv";	c=3;	break;
-	case '%':	opc = '%';	c=3;	break;
+	case '%':	ops = "%";	c=3;	break;
 	case TOK_UMOD:	ops = "umod";	c=3;	break;
 	case TOK_UMULL: ops = "umul";	c=3;	break;
-	default:	opc = '@';	c=1;	break;
+	default:	
+		outputenc = mapcc(op);
+		ops = "";
+		c=1;
+		break;
 	}
 
 	switch(c) {
@@ -716,22 +642,24 @@ void gen_opi(int op)
 			printf( "GVMASK\n" );
 			gv(RC_INT);
 		}
-		printf( "vtop R: %x\n", vtop->r );
+//		printf( "vtop R: %x\n", vtop->r );
+//		printf( "vtop R: %x\n", vtop->r );
 		vswap();
-		printf( "vtop R: %x\n", vtop->r );
 		c=gv(RC_INT);
-		printf( "Got V\n" );
 		vswap();
-		printf( "vtop R: %x\n", vtop->r );
 		if((vtop->r & (VT_VALMASK | VT_LVAL | VT_SYM)) == VT_CONST) {
-			uint8_t cons = vtop->c.i;
-			r=vtop[-1].r;
-			gprintf( "__-%d / %d / %s [%d%c] %c // CONSTANT: %d \n", r, cons, ops, op,op, opc, vtop->c.i );
+			r = vtop[-1].r;
+			gprintf( outputenc, retreg, r, ops, "", vtop->c.i );
 			goto done;
 		}
+
+//		printf( "Got V: %d\n", c );
+//		printf( "vtop R: %x\n", vtop->r );
 		fr=gv(RC_INT);
 		r=vtop[-1].r;
-		gprintf( "---%d / %d- %c(0x%02x) %s--\n", c, fr, opc, opc, ops );
+		gprintf( "		//---%d / %d- %s--\n", c, fr, ops );
+		gprintf( outputenc, retreg, r, ops, "cpua", fr );
+		
 done:
 		vtop--;
 		if (op >= TOK_ULT && op <= TOK_GT) {
@@ -746,7 +674,7 @@ done:
 		vswap();
 		r=gv(RC_INT);
 		vswap();
-		opc|=r;
+		//opc|=r;
 		if ((vtop->r & (VT_VALMASK | VT_LVAL | VT_SYM)) == VT_CONST) {
 			fr=vtop[-1].r;
 			c = vtop->c.i & 0x1f;
@@ -756,7 +684,7 @@ done:
 		}
 
 		//XXX TODO: Look into how intr,get_reg_ex works, and how it re-assigns registers.
-		gprintf( "-_-%d / %d- %c %s--\n", c, fr, opc, ops );
+		gprintf( "-_-%d / %d- %s--\n", c, fr, ops );
 		vtop--;
 		break;
 	case 3:

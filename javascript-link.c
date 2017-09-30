@@ -46,7 +46,7 @@ int code_reloc (int reloc_type)
 int gotplt_entry_type (int reloc_type)
 {
 	//printf( "gotplt_entry_type: %d\n", reloc_type );
-	printf( "Warning: this needs to be done better.\n" );
+	printf( "Warning: this needs to be done (gotplt_entry_type %d).\n", reloc_type );
 	return ALWAYS_GOTPLT_ENTRY;
 #if 0
 /* Whether to generate a GOT/PLT entry and when. NO_GOTPLT_ENTRY is first so
@@ -127,12 +127,11 @@ void relocate_init(Section *sr)
 void relocate(TCCState *s1, ElfW_Rel *rel, int type, unsigned char *ptr, addr_t addr, addr_t val)
 {
 
-	int sym_index, esym_index;
-
-	sym_index = ELFW(R_SYM)(rel->r_info);     //Not sure what this is.
-
+	int esym_index;
+	int sym_index = ELFW(R_SYM)(rel->r_info);     //Not sure what this is.
 	uint32_t place_to_patch = rel->r_offset;  //Offset from beginning of text section.
-	uint8_t  * ptr_to_patch = ptr;            //The actual start of the line that needs patching.
+	//uint8_t  * ptr_to_patch = ptr;            //The actual start of the line that needs patching.
+
 	// Set the new patch value to "val"
 
 	printf( "Do relocation %p %p %d %p [%d %d] ---> %p  SYM INDEX: %d  SEC: %p\n", s1, rel, type, ptr, addr, val, rel->r_offset, sym_index, srl->sh_addr );
