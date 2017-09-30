@@ -56,11 +56,18 @@ void AnotherTest( int k )
 	//global = global + 5;
 }
 
+void VoidTest()
+{
+	global++;
+}
+
 int _start()
 {
 	struct test t;
 	t.a = 4;
 	t.g = 6;
+	VoidTest();
+	AnotherTest(1);
 	return MyTest( 0xdeadbeef, 9, 6, t );
 }
 

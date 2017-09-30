@@ -22,12 +22,13 @@
 
 /*
   DISCLAIMER: THIS IS NOT INTENDED AS A PERFORMANT C TO JAVASCRIPT COMPILER.
-  Just an educational fun-time thinger.
+  Just an educational target for TCC.  You can use this to understand how to
+  write your own target in TCC.
 
   This is a pretend processor.  Really geared for a bare-minimum implementation
-  of a TCC target.  It's a totally made up architecture, but exists mostly so
-  I could figure out how to write target architecutres for TCC.  Hopefully it
-  also can serve as a basis for other people to write their own targets for
+  of a TCC target.  It's inbetween a processor and straight javascript. It was
+  so I could figure out how to write target architecutres for TCC.  Hopefully
+  it also can serve as a basis for other people to write their own targets for
   TCC.  Specifically, I was trying to port to an xtensa processor, so you will
   see a lot of stuff here geared specficially so I could head in that
   direction.
@@ -102,6 +103,8 @@ ST_DATA const int reg_classes[NB_REGS] = {
 
 /* USEFUL STUFF:
 
+"goto" and JavaScript:
+    TODO: Write this section.
 
 Patching, etc.
 
@@ -121,7 +124,8 @@ Patching, etc.
 
 /* The g / gprintf functions are for emitting code.  This is normally done for
    assembly opcodes, however, we can abuse it and output plain text into ELF 
-   sections. */
+   sections. g updates 'ind' which is a pointer to where we are in the section
+   using this, we can update positions. */
 ST_FUNC void g(char c)
 {
 	int ind1;
@@ -139,7 +143,8 @@ ST_FUNC void g(char c)
 }
 
 
-
+/* This is a convenience function that mimics printf, but lets us output
+   directly to the data section. */
 ST_FUNC void gprintf( const char * format, ... )
 {
 	char buffer[1024];
@@ -195,12 +200,10 @@ ST_FUNC void gsym_addr(int t, int a)
 		t = n;
 	}
 
-
-	{
-		//Sym *sym = get_sym_ref(&char_pointer_type, cur_text_section, a, 0);
-		//gprintf( "	//SYM: %p = %p, a: %p T: %p  PLACE TO PATCH: %p\n", &char_pointer_type, cur_text_section, a, t, ind );
-	}
-	//greloc(cur_text_section, sym, t, R_JS_CODE_ABS32); //S, Sym, Offset, Type
+	/* vvv what does greloc do?  I gotta figure out how this works. */
+	/* 
+	 greloc(cur_text_section, sym, t, R_JS_CODE_ABS32); //S, Sym, Offset, Type
+	*/
 
 	if( !t )
 	{
@@ -210,8 +213,8 @@ ST_FUNC void gsym_addr(int t, int a)
 	{
 		gprintf( "	case 0x%08x: //Patch %08x\n", ind, t );
 	}
-	//Also, patch the sym.
-	
+
+	/* XXX TODO: Also, patch the sym in the GOT/PLT table? */
 }
 
 ST_FUNC void gsym(int t)
@@ -219,12 +222,10 @@ ST_FUNC void gsym(int t)
 	gsym_addr(t, ind);
 }
 
-
 /* store register/short term op 'r' in lvalue 'v' 
  This is usually after a mathematical operation. 
 
  The value used here in v->c.i indicates the last value passed into sym_push.
- 
 */
 ST_FUNC void store(int r, SValue *sv)
 {
@@ -235,9 +236,6 @@ ST_FUNC void store(int r, SValue *sv)
 	int is_stack = 0;
 	int memaddy = 0;
 	int valtype = sv->r & VT_VALMASK; //or should this use 	//int t = type->t;?
-
-	//dbginfo( "load ( %d -> %d %ld reg %d/%d TYPE %d)\n", r, sv->type.t, sv->c.i, sv->r, sv->r2, sv->type.t & VT_BTYPE );
-
 
 	size = ( size+ (REGSIZE-1) ) & (~ (REGSIZE-1) ); //This handles rounding up to the closest next unit.
 
@@ -263,13 +261,12 @@ ST_FUNC void store(int r, SValue *sv)
 	}
 	else if( valtype == VT_CONST )
 	{
-		tcc_error( "Cannot store constants." );
+		tcc_error( "Cannot store constants. [%x] [%d]", sv->r, sv->c.i );
 	}
 	else
 	{
 		tcc_error( "not mem store %d (r=%d) is such a thing even possible?\n", sv->r, r );
 	}
-
 
 	//dbginfo( "store( %d -> %d %ld reg %d TYPE %d)\n", r, v->type.t, v->c.i, v->r, v->type.t & VT_BTYPE );
 }
@@ -305,26 +302,34 @@ ST_FUNC void load(int r, SValue *sv)
 		}
 		else
 		{
-			//tcc_error( "Error: variable type (%d) not supported.", size );
-			gprintf( "	//XXX TODO: FIXME Variable type %d\n", size );
+			tcc_error( "Error: variable type (%d) not supported for register loading.", size );
 		}
 		return;
 	}
 	else if( ( sv->r & VT_VALMASK) == VT_CONST )
 	{
-		//Got a constant.  Note that this is straight assigning a constant to
-		//a register, unlike when an immediate const is places after an
-		//operator.
-		gprintf( "	cpua%d = %d;\n", r, sv->c.i );
+		/* Got a constant.  Note that this is straight assigning a constant to
+		   a register, unlike when an immediate const is places after an
+		   operator. */
+		if( sv->r & VT_LVAL_UNSIGNED )
+			gprintf( "	cpua%d = %u;\n", r, sv->c.i );
+		else
+			gprintf( "	cpua%d = %d;\n", r, sv->c.i );
 	}
 	else if( ( sv->r & VT_VALMASK ) == VT_JMP || ( sv->r & VT_VALMASK ) == VT_JMP )
 	{
 		gprintf( "	//JMP Placeholder (no code needed)\n" );
 	}
+	else if( sv->r & VT_SYM )
+	{
+		gprintf( "NOT MEM load %04x %04x  %p %d   %p\n", sv->r, sv->r2, type->ref, size, sv->sym );
+		gprintf( "	cpu%d = tcc_readreg( 0x" );
+	    greloc(cur_text_section, sv->sym, ind, R_JS_DATA_ABS32);	// rem the inst need to be patched
+		gprintf( "00000000);\n", r );
+	}
 	else
 	{
-		//tcc_error( "NOT MEM load %04x %04x  %p %d\n", sv->r, sv->r2, type->ref, size );
-		gprintf( "	//XXX WARNING: Unknown load %04x %04x   %p %d   Const %d\n", sv->r, sv->r2, type->ref, size, sv->c.i );
+		gprintf( "Unknown load mechanism %04x %04x  %p %d   %p\n", sv->r, sv->r2, type->ref, size, sv->sym );
 	}
 
 }
@@ -333,7 +338,7 @@ ST_FUNC void load(int r, SValue *sv)
 ST_FUNC int gjmp(int t)
 {
 	int ret = ind+11;		//Set patch address to current location + the offset to the "00000000" in code_.
-	gprintf( "	state = 0x%08x; break; //gjmp(%d) r: %x t: %x vtop->c.i: %x %x\n", t, t, ind, t, vtop->c.i, vtop->r );
+	gprintf( "	state = 0x%08x|0; break; //gjmp(%d) r: %x t: %x vtop->c.i: %x %x\n", t, t, ind, t, vtop->c.i, vtop->r );
 	return ret;
 }
 
@@ -344,18 +349,58 @@ ST_FUNC void gjmp_addr(int a)
 }
 
 
-
+/* Generate a function call.  Once we're here, vtop contains a ton of info
+   about our current state, i.e. every argument that needs to be passed in as
+   well as the function call, itself! */
 ST_FUNC void gfunc_call(int nb_args)
 {
 	int i;
-	printf( "PP: %p\n", vtop->sym );
 	//greloc(cur_text_section, vtop->sym, ind, R_JS_CODE_ABS32);
-	vtop--;
+
+	SValue * functop = &vtop[-nb_args];
+
+	gprintf( "	%s( ", get_tok_str(functop->sym->v, NULL) );
+
+	functop++;
+
 	for( i = 0 ; i < nb_args; i ++ )
 	{
+		int vtype = vtop->r & VT_VALMASK;
+		if( vtype == VT_CONST )
+		{
+			if( vtop->r & VT_LVAL_UNSIGNED )
+				gprintf( "0x%lx", vtop->c.i );
+			else
+				gprintf( "0x%x", vtop->c.i );
+		}
+		else if( vtype == VT_LOCAL )
+		{
+			int btype = ((vtop->type.t)&VT_BTYPE);
+			if( btype == VT_FLOAT )
+			{
+				tcc_error( "Float function param not implemented." );
+			}
+			else if( btype == VT_DOUBLE )
+			{
+				tcc_error( "Do func param not implemented." );
+			}
+			else
+			{
+				int reg = gv(RC_INT);
+				gprintf( "cpua%d", vtop->r & ~VT_VALMASK );
+			}
+		}
+		else
+		{
+			tcc_error( "Unkown parameter type %d\n", vtop->r  );
+		}
 		vtop--;
+		gprintf( "%c", (i != nb_args - 1)?',':' ');
 	}
-	gprintf( "gfunc_call( nb_args = %d )\n", nb_args );
+
+	vtop = functop - 1; /* Fully pop function call off stack */
+
+	gprintf( ");\n" );
 }
 
 
@@ -451,7 +496,7 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 
 	gprintf( "	//Current loc: %d\n", loc );
 
-	gprintf( "	var state = 0;\n" );
+	gprintf( "	var state = 0|0;\n" );
 	gprintf( "	looptop: do { switch( state ) {\n" );
 	gprintf( "	case 0x00000000:	//Default function state\n" );
 
@@ -555,7 +600,7 @@ printf( "gtst(%d, %d, %d, %d  %d %d)\n",v, inv, t, ind, vtop->r, nocode_wanted )
 	{
 		//const char * op=mapcc(inv?negcc(vtop->c.i):vtop->c.i);
 		//printf( "Encode branch CMP: %d %d <<%s>>   %d\n", r, t, op, vtop->c.i );
-		gprintf( "	if( cpua0 %c= 0 )   state = 0x00000000; break; //r: %x t: %x vtop->c.i: %x %x\n", inv?'=':'!', r, t, vtop->c.i, vtop->r );
+		gprintf( "	if( cpua0 %c= 0 )   state = 0x00000000|0; break; //r: %x t: %x vtop->c.i: %x %x\n", inv?'=':'!', r, t, vtop->c.i, vtop->r );
 		t = r+30;
 		gprintf( "	//Setting t = %d\n", t );
 
@@ -579,7 +624,7 @@ printf( "gtst(%d, %d, %d, %d  %d %d)\n",v, inv, t, ind, vtop->r, nocode_wanted )
 					x = (uint32_t *)(cur_text_section->data + lp);
 					*x &= 0xff000000;
 					*x |= encbranch(lp,t,1);*/
-					printf( "Encode branch JMP: %p %d %d\n", x, p, t );
+					tcc_error( "TODO: Encode branch JMP: %p %d %d\n", x, p, t );
 				}
 				t = vtop->c.i;
 				gprintf( "	//Setting t = %d\n", t );
@@ -751,7 +796,7 @@ done:
 
 void ggoto(void)
 {
-	printf( "ggoto()\n" );
+	tcc_error( "goto not implemented in javascript" );
 }
 
 /* Return the number of registers needed to return the struct, or 0 if
