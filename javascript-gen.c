@@ -71,6 +71,7 @@ enum {
 	TREG_A2,
 	TREG_A3,
 	TREG_A4,
+	TREG_LR,
 };
 
 #define REG_IRET   TREG_A0
@@ -229,6 +230,7 @@ ST_FUNC void gsym(int t)
 */
 ST_FUNC void store(int r, SValue *sv)
 {
+#if 0
 	CType *type = &sv->type;
 	//int t = type->t;
 	int size = type_size(type, &func_align);
@@ -269,11 +271,61 @@ ST_FUNC void store(int r, SValue *sv)
 	}
 
 	//dbginfo( "store( %d -> %d %ld reg %d TYPE %d)\n", r, v->type.t, v->c.i, v->r, v->type.t & VT_BTYPE );
+
+void store(int r, SValue *sv)
+{
+#endif
+	SValue v1;
+	int v, ft, fc, fr, sign;
+
+	fr = sv->r;
+	ft = sv->type.t;
+	fc = sv->c.i;
+
+	if(fc>=0)
+		sign=0;
+	else {
+		sign=1;
+		fc=-fc;
+	}
+
+	v = fr & VT_VALMASK;
+	if (fr & VT_LVAL || fr == VT_LOCAL) {
+		uint32_t base = 0x0; /* fp */
+		if(v < VT_CONST) {
+			base=v;
+			v=VT_LOCAL;
+			fc=sign=0;
+		} else if(v == VT_CONST) {
+			v1.type.t = ft;
+			v1.r = fr&~VT_LVAL;
+			v1.c.i = sv->c.i;
+			v1.sym=sv->sym;
+			load(TREG_LR, &v1);
+			base = TREG_LR; /* lr */
+			fc=sign=0;
+			v=VT_LOCAL;
+		}
+		if(v == VT_LOCAL) {
+			if(is_float(ft)) {
+				//calcaddr(&base,&fc,&sign,1020,2);
+				tcc_error( "Store float [r:%d fc:%d base:%d sign%d]\n", r, fc, base, sign );
+			} else if((ft & (VT_BTYPE|VT_UNSIGNED)) == VT_BYTE || (ft & VT_BTYPE) == VT_SHORT) {
+				//calcaddr(&base,&fc,&sign,255,0);
+				tcc_error( "Store byte or short [r:%d fc:%d base:%d sign%d]\n", r, fc, base, sign );
+			} else {
+				gprintf( "	tcc_writereg( %s%c%d, cpua%d );\n", base?"cpua5":"cpusp", (sign)?'-':'+', fc, r );
+			}
+			return;
+		}
+	}
+	tcc_error("store unimplemented");
 }
 
 /* */
 ST_FUNC void load(int r, SValue *sv)
 {
+#if 0
 	CType *type = &sv->type;
 	int size = type_size(type, &func_align);
 	int is_mem = 0;
@@ -282,6 +334,8 @@ ST_FUNC void load(int r, SValue *sv)
 	int valtype = sv->r & VT_VALMASK; //or should this use 	//int t = type->t;?
 
 	//dbginfo( "load ( %d -> %d %ld reg %d/%d TYPE %d)\n", r, sv->type.t, sv->c.i, sv->r, sv->r2, sv->type.t & VT_BTYPE );
+
+
 
 	size = ( size+ (REGSIZE-1) ) & (~ (REGSIZE-1) ); //This handles rounding up to the closest next unit.
 
@@ -322,7 +376,7 @@ ST_FUNC void load(int r, SValue *sv)
 	}
 	else if( sv->r & VT_SYM )
 	{
-		gprintf( "NOT MEM load %04x %04x  %p %d   %p\n", sv->r, sv->r2, type->ref, size, sv->sym );
+		gprintf( "VTSYM  load %04x %04x  %p %d   %p\n", sv->r, sv->r2, type->ref, size, sv->sym );
 		gprintf( "	cpu%d = tcc_readreg( 0x" );
 	    greloc(cur_text_section, sv->sym, ind, R_JS_DATA_ABS32);	// rem the inst need to be patched
 		gprintf( "00000000);\n", r );
@@ -331,7 +385,106 @@ ST_FUNC void load(int r, SValue *sv)
 	{
 		gprintf( "Unknown load mechanism %04x %04x  %p %d   %p\n", sv->r, sv->r2, type->ref, size, sv->sym );
 	}
+#endif
+	int v, ft, fc, fr, sign;
+	SValue v1;
+	ft = sv->type.t;
+	int size = type_size(&sv->type, &func_align);
 
+	fr = sv->r;
+	fc = sv->c.i;
+
+	if(fc>=0)
+		sign=0;
+	else {
+		sign=1;
+		fc=-fc;
+	}
+
+	v = fr & VT_VALMASK;
+	if (fr & VT_LVAL) {
+		uint32_t base = 0; // fp
+		if(v == VT_LLOCAL) {
+			v1.type.t = VT_PTR;
+			v1.r = VT_LOCAL | VT_LVAL;
+			v1.c.i = sv->c.i;
+			load(TREG_LR, &v1);
+			base = TREG_LR; /* lr */
+			fc=sign=0;
+			v=VT_LOCAL;
+		} else if(v == VT_CONST) {
+			v1.type.t = VT_PTR;
+			v1.r = fr&~VT_LVAL;
+			v1.c.i = sv->c.i;
+			v1.sym=sv->sym;
+			load(TREG_LR, &v1);
+			base = TREG_LR; /* lr */
+			fc=sign=0;
+			v=VT_LOCAL;
+		} else if(v < VT_CONST) {
+			base=v;
+			fc=sign=0;
+			v=VT_LOCAL;
+		}
+
+		if(v == VT_LOCAL) {
+			if(is_float(ft)) {
+				//calcaddr(&base,&fc,&sign,1020,2);
+				tcc_error( "Load float [r:%d fc:%d base:%d sign%d]\n", r, fc, base, sign );
+			} else if((ft & (VT_BTYPE|VT_UNSIGNED)) == VT_BYTE || (ft & VT_BTYPE) == VT_SHORT) {
+				//calcaddr(&base,&fc,&sign,255,0);
+				tcc_error( "Load byte or short [r:%d fc:%d base:%d sign%d]\n", r, fc, base, sign );
+			} else {
+				gprintf( "	cpua%d = tcc_readreg( %s%c%d );\n", r, base?"cpua5":"cpusp", (sign)?'-':'+', fc );
+			}
+			return;
+		}
+	} else {
+		if (v == VT_CONST) {
+			if (fr & VT_SYM )
+			{
+				int backupind = 0;
+				gprintf( "	cpua%d = /*read indirect from*/ ( 0x", r );
+				if(fr & VT_SYM)
+				{
+					backupind = ind;
+					greloc(cur_text_section, sv->sym, ind, R_JS_DATA_ABS32);
+				}
+				gprintf( "%08x ); //greloc at: %x (fc=%d, sign=%d)\n", sv->c.i, backupind, fc, sign );
+			}
+			else
+			{
+				//gprintf( "Direct constant load [r:%d fc:%d sv->c.i:%d sign:%d]\n", r, fc, sv->c.i, sign );
+				gprintf( "	cpua%d = %c%d|0;\n", r, sign?'-':' ', fc );
+			}
+			return;
+		} else if (v == VT_LOCAL) {
+			gprintf( "Load LOCAL [r:%d fc:%d sv->c.i:%d sign:%d]\n", r, fc, sv->c.i, sign );
+			if (fr & VT_SYM ) {
+				greloc(cur_text_section, sv->sym, ind, R_JS_DATA_ABS32);
+			}
+			return;
+		} else if(v == VT_CMP) {
+			gprintf( "Load VT_CMP [r:%d fc:%d sv->c.i:%d sign:%d]\n", r, fc, sv->c.i, sign );
+			return;
+		} else if (v == VT_JMP || v == VT_JMPI) {
+			gprintf( "Load VT_JMP/JMPI[r:%d fc:%d sv->c.i:%d sign:%d]\n", r, fc, sv->c.i, sign );
+			gsym(sv->c.i);
+			return;
+		} else if (v < VT_CONST) {
+			if(is_float(ft))
+			{
+				gprintf( "Load [last] float [r:%d fc:%d sv->c.i:%d sign:%d]\n", r, fc, sv->c.i, sign );
+			}
+			else
+			{
+				//gprintf( "	cpua%d = tcc_readreg( cpua%d ); //XXX TODO: Check parameters. [%d %d %d %d %d   size: %d]\n", r, fc, r, fc, sv->c.i, sign, v, size );
+				gprintf( "	cpua%d = cpua%d;\n", r, fc );
+				//gprintf( "Load [last] not float [r:%d fc:%d sv->c.i:%d sign:%d %d  V: %d]\n", r, fc, sv->c.i, sign, v );
+			}
+			return;
+		}
+	}
 }
 
 
@@ -387,7 +540,7 @@ ST_FUNC void gfunc_call(int nb_args)
 			else
 			{
 				int reg = gv(RC_INT);
-				gprintf( "cpua%d", vtop->r & ~VT_VALMASK );
+				gprintf( "cpua%d /* debug: %d */", reg, vtop->r & ~VT_VALMASK );
 			}
 		}
 		else
@@ -416,7 +569,7 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 	//Tell ELF about this function call, so we get a symbol generated for us.
 	put_elf_reloc(symtab_section, cur_text_section, ind, R_JS_CODE_ABS32, 0);
 
-	gprintf( "function %s(", funcname );
+	gprintf( "\nfunction %s(", funcname );
 
 	func_vt = sym->type;
 	func_var = (sym->f.func_type == FUNC_ELLIPSIS);

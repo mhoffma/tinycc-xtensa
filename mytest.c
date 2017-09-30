@@ -10,6 +10,7 @@ int MyTest( int a, unsigned char ll, unsigned char b, struct test t )
 	int r;
 	int k;
 	a+=353*4;
+	global +=5;
 	ll = ~ll;
 	r = a+ll+b;
 	r = r - 5;
