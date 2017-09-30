@@ -12,6 +12,8 @@ int MyTest( int a, unsigned char ll, unsigned char b, struct test t )
 	a+=353*4;
 	ll = ~ll;
 	r = a+ll+b;
+	r = r - 5;
+	r = 5 - r;
 	k = t.g * ll;
 	if( k == 36 )
 	{
@@ -28,11 +30,12 @@ int MyTest( int a, unsigned char ll, unsigned char b, struct test t )
 void AnotherTest( int k )
 {
 	int a;
+	int r;
 	for( a = 0; a < k; a++ )
 	{
 		r = r + 1;
 	}
-	return r;
+	//global = global + 5;
 }
 
 int _start()
