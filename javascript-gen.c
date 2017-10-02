@@ -52,7 +52,8 @@
 #define RC_A2      0x000040
 #define RC_A3      0x000080
 #define RC_A4      0x000100
-#define NB_REGS         5
+#define RC_LR      0x000200
+#define NB_REGS         6
 
 #include "tcc.h"
 
@@ -100,6 +101,7 @@ ST_DATA const int reg_classes[NB_REGS] = {
 	RC_INT | RC_A2,
 	RC_FLOAT | RC_A3,
 	RC_FLOAT | RC_A4,
+	RC_INT | RC_LR,
 };
 
 /* USEFUL STUFF:
