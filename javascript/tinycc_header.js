@@ -4,8 +4,9 @@ var cpua0 = 0|0;
 var cpua1 = 0|0;
 var cpua2 = 0.0;
 var cpua3 = 0.0;
-var memarray = new Uint8Array(cpusp);
+var heap32 = new Int32Array(cpusp);
 
+/*
 function tcc_write( location, size, value ) {
 	if( typeof value === 'number' )
 	{
@@ -59,6 +60,8 @@ function tcc_readreg( location )
 {
 	return tcc_read( location, 4, 'number' );
 }
+*/
+
 function tcc_pop( size, type )
 {
 	var ret = tcc_read( cpuspl, size, type );

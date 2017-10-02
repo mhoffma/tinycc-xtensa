@@ -195,7 +195,9 @@ ST_FUNC void gsym_addr(int t, int a)
 			tcc_error( "Can't patch %d pointer at bad location: %d: %s", ind, 
 				t, ptr ); 
 
-		/* Overwrite the text where it was with the new target location */
+		/* Overwrite the text where it was with the new target location. 
+		   normally, you can just overwrite the raw data, but JS is human-
+		   readable. */
 		sprintf( buff, "%08x", a );
 		memcpy( ptr, buff, 8 );
 		t = n;
@@ -314,7 +316,7 @@ void store(int r, SValue *sv)
 				//calcaddr(&base,&fc,&sign,255,0);
 				tcc_error( "Store byte or short [r:%d fc:%d base:%d sign%d]\n", r, fc, base, sign );
 			} else {
-				gprintf( "	tcc_writereg( %s%c%d, cpua%d );\n", base?"cpua5":"cpusp", (sign)?'-':'+', fc, r );
+				gprintf( "	heap32[(%s%c%d)>>2] = cpua%d|0;\n", base?"cpua5":"cpusp", (sign)?'-':'+', fc, r );
 			}
 			return;
 		}
@@ -408,7 +410,9 @@ ST_FUNC void load(int r, SValue *sv)
 			v1.type.t = VT_PTR;
 			v1.r = VT_LOCAL | VT_LVAL;
 			v1.c.i = sv->c.i;
+			gprintf( "		//Doing a pre-load for LLOCAL.\n" );
 			load(TREG_LR, &v1);
+			gprintf( "		//Pre-load done.\n" );
 			base = TREG_LR; /* lr */
 			fc=sign=0;
 			v=VT_LOCAL;
@@ -417,7 +421,9 @@ ST_FUNC void load(int r, SValue *sv)
 			v1.r = fr&~VT_LVAL;
 			v1.c.i = sv->c.i;
 			v1.sym=sv->sym;
+			gprintf( "		//Doing a pre-load for VT_CONST.\n" );
 			load(TREG_LR, &v1);
+			gprintf( "		//Pre-load done.\n" );
 			base = TREG_LR; /* lr */
 			fc=sign=0;
 			v=VT_LOCAL;
@@ -433,9 +439,10 @@ ST_FUNC void load(int r, SValue *sv)
 				tcc_error( "Load float [r:%d fc:%d base:%d sign%d]\n", r, fc, base, sign );
 			} else if((ft & (VT_BTYPE|VT_UNSIGNED)) == VT_BYTE || (ft & VT_BTYPE) == VT_SHORT) {
 				//calcaddr(&base,&fc,&sign,255,0);
-				tcc_error( "Load byte or short [r:%d fc:%d base:%d sign%d]\n", r, fc, base, sign );
+				gprintf( "	cpua%d = (heap32[(%s%c%d)>>2]>>((%s%c%d&3)*8))&0xff;\n", r, base?"cpua5":"cpusp", (sign)?'-':'+', fc, base?"cpua5":"cpusp", (sign)?'-':'+', fc );
+				//tcc_error( "Load byte or short [r:%d fc:%d base:%d sign%d]\n", r, fc, base, sign );
 			} else {
-				gprintf( "	cpua%d = tcc_readreg( %s%c%d );\n", r, base?"cpua5":"cpusp", (sign)?'-':'+', fc );
+				gprintf( "	cpua%d = heap32[(%s%c%d)>>2]|0;\n", r, base?"cpua5":"cpusp", (sign)?'-':'+', fc );
 			}
 			return;
 		}
@@ -635,15 +642,20 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 		size = ( size+ (REGSIZE-1) ) & (~ (REGSIZE-1) ); //This handles rounding up to the closest next unit.
 		if( type->t == VT_FLOAT )
 		{
-			gprintf( "\ttcc_push( %d, float32touint32( %s ), %d );\n", 4, get_tok_str( sym2->v & ~SYM_FIELD, 0 )  );
+			//gprintf( "\ttcc_push( %d, float32touint32( %s ), %d );\n", 4, get_tok_str( sym2->v & ~SYM_FIELD, 0 )  );
+			gprintf( "	heap32[(cpuspl-=4)>>2] = float32touint32( %s );\n", get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
 		}
 		else if( type->t == VT_DOUBLE )
 		{
-			gprintf( "\ttcc_push( %d, float64touint64( %s ), %d );\n", 8, get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
+			//gprintf( "\ttcc_push( %d, float64touint64( %s ), %d );\n", 8, get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
+			gprintf( "	var stage64 = float64touint64( %s );\n", get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
+			gprintf( "	heap32[(cpuspl-=4)>>2] = stage64 & 0xffffffff;\n" );
+			gprintf( "	heap32[(cpuspl-=4)>>2] = stage64 >> 32;\n" );
 		}
 		else  //Uint8array or actual number.
 		{
-			gprintf( "\ttcc_push( %d, %s );\n", size, get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
+			gprintf( "	heap32[(cpuspl-=4)>>2] = %s;\n", get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
+			//gprintf( "\ttcc_push( %d, %s );\n", size, get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
 		}
 	}
 
