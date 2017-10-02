@@ -441,7 +441,7 @@ ST_FUNC void load(int r, SValue *sv)
 				tcc_error( "Load float [r:%d fc:%d base:%d sign%d]\n", r, fc, base, sign );
 			} else if((ft & (VT_BTYPE|VT_UNSIGNED)) == VT_BYTE || (ft & VT_BTYPE) == VT_SHORT) {
 				//calcaddr(&base,&fc,&sign,255,0);
-				gprintf( "	cpua%d = (heap32[(%s%c%d)>>2]>>((%s%c%d&3)*8))&0xff;\n", r, base?"cpua5":"cpusp", (sign)?'-':'+', fc, base?"cpua5":"cpusp", (sign)?'-':'+', fc );
+				gprintf( "	cpua%d = (heap32[(%s%c%d)>>2]>>(((%s%c%d)&3)*8))&0xff;\n", r, base?"cpua5":"cpusp", (sign)?'-':'+', fc, base?"cpua5":"cpusp", (sign)?'-':'+', fc );
 				//tcc_error( "Load byte or short [r:%d fc:%d base:%d sign%d]\n", r, fc, base, sign );
 			} else {
 				gprintf( "	cpua%d = heap32[(%s%c%d)>>2]|0;\n", r, base?"cpua5":"cpusp", (sign)?'-':'+', fc );
@@ -459,7 +459,7 @@ ST_FUNC void load(int r, SValue *sv)
 					backupind = ind;
 					greloc(cur_text_section, sv->sym, ind, R_JS_DATA_ABS32);
 				}
-				gprintf( "%08x ); //greloc at: %x (fc=%d, sign=%d)\n", sv->c.i, backupind, fc, sign );
+				gprintf( "%08x ); /* greloc at: %x (fc=%d, sign=%d) */\n", sv->c.i, backupind, fc, sign );
 			}
 			else
 			{
@@ -525,19 +525,21 @@ ST_FUNC void gfunc_call(int nb_args)
 
 	functop++;
 
-	for( i = 0 ; i < nb_args; i ++ )
+	for( i = nb_args-1; i>=0; i-- )
 	{
-		int vtype = vtop->r & VT_VALMASK;
+		SValue * vt = &vtop[-i];
+		gprintf( "/*%d*/", i );
+		int vtype = vt->r & VT_VALMASK;
 		if( vtype == VT_CONST )
 		{
-			if( vtop->r & VT_LVAL_UNSIGNED )
-				gprintf( "0x%lx", vtop->c.i );
+			if( vt->r & VT_LVAL_UNSIGNED )
+				gprintf( "0x%lx", vt->c.i );
 			else
-				gprintf( "0x%x", vtop->c.i );
+				gprintf( "0x%x", vt->c.i );
 		}
 		else if( vtype == VT_LOCAL )
 		{
-			int btype = ((vtop->type.t)&VT_BTYPE);
+			int btype = ((vt->type.t)&VT_BTYPE);
 			if( btype == VT_FLOAT )
 			{
 				tcc_error( "Float function param not implemented." );
@@ -549,14 +551,13 @@ ST_FUNC void gfunc_call(int nb_args)
 			else
 			{
 				int reg = gv(RC_INT);
-				gprintf( "cpua%d /* debug: %d */", reg, vtop->r & ~VT_VALMASK );
+				gprintf( "cpua%d /* debug: %d */", reg, vt->r & ~VT_VALMASK );
 			}
 		}
 		else
 		{
 			tcc_error( "Unkown parameter type %d\n", vtop->r  );
 		}
-		vtop--;
 		gprintf( "%c", (i != nb_args - 1)?',':' ');
 	}
 
