@@ -26,8 +26,6 @@
    relocations, returns -1. */
 int code_reloc (int reloc_type)
 {
-	printf( "Realloc\n" );
-
 	switch (reloc_type)
 	{
 	case R_JS_CODE_ABS32:
@@ -45,48 +43,65 @@ int code_reloc (int reloc_type)
    different values. */
 int gotplt_entry_type (int reloc_type)
 {
-	//printf( "gotplt_entry_type: %d\n", reloc_type );
-	printf( "Warning: this needs to be done (gotplt_entry_type %d).\n", reloc_type );
-	return ALWAYS_GOTPLT_ENTRY;
-#if 0
-/* Whether to generate a GOT/PLT entry and when. NO_GOTPLT_ENTRY is first so
-   that unknown relocation don't create a GOT or PLT entry */
-enum gotplt_entry {
-    NO_GOTPLT_ENTRY,	/* never generate (eg. GLOB_DAT & JMP_SLOT relocs) */
-    BUILD_GOT_ONLY,	/* only build GOT (eg. TPOFF relocs) */
-    AUTO_GOTPLT_ENTRY,	/* generate if sym is UNDEF */
-    ALWAYS_GOTPLT_ENTRY	/* always generate (eg. PLTOFF relocs) */
-};
-#endif
-
-	//Could be BUILD_GOT_ONLY, NO_GOTPLT_ENTRY or ALWAYS_GOTPLT_ENTRY ... OR -1 if a problem.
-/*
-    switch (reloc_type) {
-        case R_C60_32:
-	case R_C60LO16:
-	case R_C60HI16:
-        case R_C60_COPY:
-            return NO_GOTPLT_ENTRY;
-
-        case R_C60_GOTOFF:
-        case R_C60_GOTPC:
-            return BUILD_GOT_ONLY;
-
-        case R_C60_PLT32:
-        case R_C60_GOT32:
-            return ALWAYS_GOTPLT_ENTRY;
-    }
-
-    tcc_error ("Unknown relocation type: %d", reloc_type);
-    return -1;
-*/
+	/* XXX XXX TODO THIS CODE IS ALMOST CERTAINLY WRONG
+	   Can return BUILD_GOT_ONLY, NO_GOTPLT_ENTRY or ALWAYS_GOTPLT_ENTRY
+	   ... OR -1 if a problem. */
+	switch( reloc_type )
+	{
+	case R_JS_CODE_ABS32:
+		return ALWAYS_GOTPLT_ENTRY;
+	case R_JS_DATA_ABS32:
+		return ALWAYS_GOTPLT_ENTRY;
+	}
+	return -1;
+	#if 0
+		/* Whether to generate a GOT/PLT entry and when. NO_GOTPLT_ENTRY is first so
+		   that unknown relocation don't create a GOT or PLT entry */
+		enum gotplt_entry {
+		    NO_GOTPLT_ENTRY,	/* never generate (eg. GLOB_DAT & JMP_SLOT relocs) */
+		    BUILD_GOT_ONLY,	/* only build GOT (eg. TPOFF relocs) */
+		    AUTO_GOTPLT_ENTRY,	/* generate if sym is UNDEF */
+		    ALWAYS_GOTPLT_ENTRY	/* always generate (eg. PLTOFF relocs) */
+		};
+	#endif
 }
 
+/* This function seems to be used any time you have a function definition */
 ST_FUNC unsigned create_plt_entry(TCCState *s1, unsigned got_offset, struct sym_attr *attr)
 {
-    //tcc_error("C67 got not implemented");
-	printf("create_plt_entry: %p %d %p\n", s1, got_offset, attr );
-	return 0;
+	uint8_t *p;
+	Section *plt = s1->plt;
+	unsigned plt_offset, relofs;
+
+
+	/* Should probably check to see if s1->output_type == TCC_OUTPUT_DLL.
+	   if so, should probably handle this by adding an offset to start of
+	   GOT table. */
+	
+
+	if (plt->data_offset == 0) {
+		p = section_ptr_add(plt, 16);
+		p[0] = 1;
+		p[1] = 2;
+		p[2] = 3;
+		p[3] = 4;
+	}
+	plt_offset = plt->data_offset;
+
+	/* The PLT slot refers to the relocation entry it needs via offset.
+	The reloc entry is created below, so its offset is the current
+	data_offset */
+	relofs = s1->got->reloc ? s1->got->reloc->data_offset : 0;
+
+	/* Jump to GOT entry where ld.so initially put the address of ip + 4 */
+	p = section_ptr_add(plt, 16);
+	p[0] = relofs>>0;
+	p[1] = relofs>>8;
+	p[2] = relofs>>16;
+	p[3] = relofs>>24;
+	p[4] = 0xaa;
+	p[5] = 0x55;
+	return plt_offset;
 }
 
 /* relocate the PLT: compute addresses and offsets in the PLT now that final

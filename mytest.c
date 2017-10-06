@@ -4,6 +4,7 @@ struct test
 };
 
 int global = 9;
+int global2 = 10;
 
 int MyTest( int a, unsigned char ll, unsigned char b, struct test t ) 
 {
@@ -59,7 +60,9 @@ void AnotherTest( int k )
 
 void VoidTest()
 {
+reglob:
 	global++;
+	if( global < 100 ) goto reglob;
 }
 
 int _start()
@@ -67,8 +70,11 @@ int _start()
 	struct test t;
 	t.a = 4;
 	t.g = 6;
+	global++;
+	global2++;
 	VoidTest();
 	AnotherTest(1);
+	strtest( "hello, world" );
 	return MyTest( 0xdeadbeef, 9, 6, t );
 }
 

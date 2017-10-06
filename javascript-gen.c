@@ -391,9 +391,9 @@ ST_FUNC void load(int r, SValue *sv)
 	}
 #endif
 	int v, ft, fc, fr, sign;
+	//int size = type_size(&sv->type, &func_align); /*Works but not needed YET!*/
 	SValue v1;
 	ft = sv->type.t;
-	int size = type_size(&sv->type, &func_align);
 
 	fr = sv->r;
 	fc = sv->c.i;
@@ -500,7 +500,7 @@ ST_FUNC void load(int r, SValue *sv)
 ST_FUNC int gjmp(int t)
 {
 	int ret = ind+11;		//Set patch address to current location + the offset to the "00000000" in code_.
-	gprintf( "	state = 0x%08x|0; break; //gjmp(%d) r: %x t: %x vtop->c.i: %x %x\n", t, t, ind, t, vtop->c.i, vtop->r );
+	gprintf( "	state = 0x%08x|0; continue looptop; //gjmp(%d) r: %x t: %x vtop->c.i: %x %x RET: %x\n", t, t, ind, t, vtop->c.i, vtop->r, ret );
 	return ret;
 }
 
@@ -523,13 +523,11 @@ ST_FUNC void gfunc_call(int nb_args)
 
 	gprintf( "	%s( ", get_tok_str(functop->sym->v, NULL) );
 
-	functop++;
-
 	for( i = nb_args-1; i>=0; i-- )
 	{
 		SValue * vt = &vtop[-i];
-		gprintf( "/*%d*/", i );
 		int vtype = vt->r & VT_VALMASK;
+		gprintf( "/*%d*/", i );
 		if( vtype == VT_CONST )
 		{
 			if( vt->r & VT_LVAL_UNSIGNED )
@@ -550,15 +548,18 @@ ST_FUNC void gfunc_call(int nb_args)
 			}
 			else
 			{
-				int reg = gv(RC_INT);
-				gprintf( "cpua%d /* debug: %d */", reg, vt->r & ~VT_VALMASK );
+				CType *type = &vt->sym->type;
+				int size = type_size(type, &func_align); 
+				//gprintf( "cpua%d /* debug: %d */", reg, vt->r & ~VT_VALMASK );
+				
+				gprintf( "new Uint8Array(heap32.buffer, cpusp%d, %d) /* debug: %d SIZE %d::vt->c.i=%d */", vt->c.i, size, vt->r, vt->r & ~VT_VALMASK, size, vt->c.i );
 			}
 		}
 		else
 		{
 			tcc_error( "Unkown parameter type %d\n", vtop->r  );
 		}
-		gprintf( "%c", (i != nb_args - 1)?',':' ');
+		gprintf( "%c", (i!=0)?',':' ');
 	}
 
 	vtop = functop - 1; /* Fully pop function call off stack */
@@ -657,17 +658,24 @@ ST_FUNC void gfunc_prolog(CType *func_type)
 		}
 		else  //Uint8array or actual number.
 		{
-			gprintf( "	heap32[(cpuspl-=4)>>2] = %s;\n", get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
+			if( size == 4 )
+				gprintf( "	heap32[(cpuspl-=4)>>2] = %s; //size: %d\n", get_tok_str( sym2->v & ~SYM_FIELD, 0 ), size );
+			else
+				gprintf( "	heap32.set( new Int32Array(%s.buffer),cpuspl-=%d );\n", get_tok_str( sym2->v & ~SYM_FIELD, 0 ), size );
+				
 			//gprintf( "\ttcc_push( %d, %s );\n", size, get_tok_str( sym2->v & ~SYM_FIELD, 0 ) );
 		}
 	}
 
-	gprintf( "	//Current loc: %d\n", loc );
-
-	gprintf( "	var state = 0|0;\n" );
-	gprintf( "	looptop: do { switch( state ) {\n" );
-	gprintf( "	case 0x00000000:	//Default function state\n" );
-
+	/* Tricky: in gen_function (in tccgen) it assumes we can "jump to" this
+	   this particular place. */
+	{
+		int function_end_ind = ind + 78;
+		gprintf( "	var state = 0x%08x|0;\n", function_end_ind );
+		gprintf( "	looptop: do { switch( state ) {\n" );
+		gprintf( "	case 0x");
+		gprintf( "%08x:\n", function_end_ind );
+	}
 }
 
 /* generate function epilog */
@@ -676,7 +684,7 @@ ST_FUNC void gfunc_epilog(void)
 	//Use func_ret_type, too!!!
 	//ind -= 4;
 
-	gprintf( "	break looptop; } } while( true );\n" );
+	gprintf( "	default: break looptop; } } while( true );\n" );
 
 	//XXX TODO: How do we return structures?
 	//XXX TODO: Right now this doesn't actually return anything.
@@ -768,8 +776,9 @@ printf( "gtst(%d, %d, %d, %d  %d %d)\n",v, inv, t, ind, vtop->r, nocode_wanted )
 	{
 		//const char * op=mapcc(inv?negcc(vtop->c.i):vtop->c.i);
 		//printf( "Encode branch CMP: %d %d <<%s>>   %d\n", r, t, op, vtop->c.i );
-		gprintf( "	if( cpua0 %c= 0 )   state = 0x00000000|0; break; //r: %x t: %x vtop->c.i: %x %x\n", inv?'=':'!', r, t, vtop->c.i, vtop->r );
-		t = r+30;
+		gprintf( "	if( cpua0 %c= 0 )   state = 0x", inv?'=':'!' );
+		t = ind;
+		gprintf( "00000000|0; continue looptop; //r: %x t: %x vtop->c.i: %x %x\n", r, t, vtop->c.i, vtop->r );
 		gprintf( "	//Setting t = %d\n", t );
 
 	}
@@ -782,17 +791,18 @@ printf( "gtst(%d, %d, %d, %d  %d %d)\n",v, inv, t, ind, vtop->r, nocode_wanted )
 			else
 			{
 				uint32_t *x;
-				int p;
+				int p, lp;
 				if(t) {
 					p = vtop->c.i;
-					/*do
+					do
 					{
-						p = decbranch(lp=p);
+						lp=p;
+						tcc_error( "Need to examine this code much more closely\n" );
+						sscanf( cur_text_section->data + p, "%x", &p );
 					} while(p);
+
 					x = (uint32_t *)(cur_text_section->data + lp);
-					*x &= 0xff000000;
-					*x |= encbranch(lp,t,1);*/
-					tcc_error( "TODO: Encode branch JMP: %p %d %d\n", x, p, t );
+					tcc_error( "TODO: Encode branch JMP:s %p %d %d\n", x, p, t );
 				}
 				t = vtop->c.i;
 				gprintf( "	//Setting t = %d\n", t );
@@ -910,6 +920,7 @@ done:
 		vtop--;
 		break;
 	case 3:
+		tcc_error( "Case 3 for opi not written yet." );
 		/*
 		This is how you would operate a function call.
 			vpush_global_sym(&func_old_type, func);
@@ -964,14 +975,51 @@ done:
 
 void ggoto(void)
 {
-	tcc_error( "goto not implemented in javascript" );
+	int r;
+	if ((vtop->r & (VT_VALMASK | VT_LVAL)) == VT_CONST)
+	{
+		/* constant case */
+		#if 0
+		x=encbranch(ind,ind+vtop->c.i,0);
+		if(x) {
+			if (vtop->r & VT_SYM) {
+				/* relocation case */
+				greloc(cur_text_section, vtop->sym, ind, R_ARM_PC24);
+			} else
+				put_elf_reloc(symtab_section, cur_text_section, ind, R_ARM_PC24, 0);
+			o(x|(is_jmp?0xE0000000:0xE1000000));
+		} else {
+			if(!is_jmp)
+				o(0xE28FE004); // add lr,pc,#4
+			o(0xE51FF004);   // ldr pc,[pc,#-4]
+
+			if (vtop->r & VT_SYM)
+				greloc(cur_text_section, vtop->sym, ind, R_ARM_ABS32);
+			o(vtop->c.i);
+		}
+		#endif
+		gprintf( "	state = 0x" );
+		if (vtop->r & VT_SYM)
+			greloc(cur_text_section, vtop->sym, ind, R_JS_CODE_ABS32);
+		gprintf( "00000000; continue looptop; /* gjmp with forward reloc */\n" );
+		
+		tcc_error( "Unusual / confusing jump." );
+	} else {
+		/* otherwise, indirect call (what you do is you jump to the
+		   absolute address of the target. */
+		r = gv(RC_INT);
+		tcc_error( "Cannot make cross-function goto calls with javascript target." );
+		gprintf( "	state = cpua%d; continue looptop; /* indirect call */", r );
+	}
+	vtop--;
 }
+
 
 /* Return the number of registers needed to return the struct, or 0 if
    returning via struct pointer. */
 ST_FUNC int gfunc_sret(CType *vt, int variadic, CType *ret, int *ret_align, int *regsize)
 {
-	printf( "gfunc_sret\n" );
+	tcc_error( "gfunc_sret\n" );
 	*ret_align = 1; //Probably don't have to re-align values?
 	return 0;
 }
